@@ -1,6 +1,6 @@
 namespace CodexVsix.Models;
 
-public sealed class SelectionOption
+public class SelectionOption
 {
     public SelectionOption(string label, string value)
     {

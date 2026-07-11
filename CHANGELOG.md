@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.3.0 - 2026-07-11
+
+### Added
+- VS Code-style Codex header, composer controls, and accessible settings detail panel.
+- Visual Studio command parity for opening the sidebar, starting a new Codex agent, adding editor selections/files to the current thread, running `/review`, and asking Codex to implement selected context.
+- Context menu entries for editor selections and Solution Explorer files.
+- VS Code-compatible extension settings for composer Enter behavior, follow-up mode, review delivery, and open-on-startup.
+- Automated tests for app-server arguments, path containment/indexing, and protected settings persistence.
+- Windows CI for locked restore, NuGet audit, tests, warning-free build, VSIX packaging, and package verification.
+- Optional release signing through Microsoft's Sign CLI when repository signing credentials are configured.
+- Bounded official-WebView history with explicit older-message batches, display-only payload limits, and responsive history controls.
+- Manual conversation compaction and optional automatic compaction at 85% context usage.
+
+### Changed
+- Enter now sends from the composer by default, while Shift+Enter inserts a newline and Ctrl+Enter remains an explicit send shortcut.
+- Updated the integration to the current Codex app-server methods for plugins, reviews, steering, approvals, permissions, elicitation, and logout.
+- Updated Visual Studio, WebView2, Newtonsoft.Json, Community Toolkit, and transitive MessagePack dependency baselines.
+- Updated the embedded Mermaid bundle to 11.15.0 and added packaged third-party notices.
+- Sensitive settings and prompt history are now protected with Windows DPAPI and saved atomically.
+- Authentication guidance now makes per-user `codex login` the recommended path, and the official WebView no longer receives `OPENAI_API_KEY` from the Visual Studio process.
+- Refreshed fallback model choices from the installed Codex 0.144 catalog, with GPT-5.6 Sol as the default for new settings.
+- Localized the new model, IDE-command, history, Markdown, and skill-scope UI across all five supported languages.
+
+### Fixed
+- Managed MCP servers now use dotted `-c` overrides accepted by current Codex CLI versions.
+- Cancellation, queued follow-ups, one-shot attachments, server restart, and stale process callbacks no longer race each other.
+- Solution file search is asynchronous, cached, cancellable, bounded, and excludes generated directories and reparse points.
+- Quoted `@file` mentions, paths containing spaces, drive-root containment, and dynamic Markdown fences are handled correctly.
+- Mermaid preview navigation, CSP, messages, external links, and URL schemes are restricted to trusted values.
+- Package, manifest, assembly, and app-server client versions now share one committed version source.
+- Clearing prompt history no longer merges the deleted entries back from disk.
+- Settings coordination now uses a deterministic cross-process mutex, while malformed-file preservation no longer mislabels transient I/O failures as corruption.
+- PowerShell executable paths, command resolution timeouts, skill directory boundaries, and `.system` scope detection are handled correctly.
+- Changing the extension language no longer changes the Visual Studio process culture.
+- Rendered Mermaid diagrams are frozen after their first valid layout so inactive messages do not retain WebView2 instances.
+- Extremely long conversations no longer hydrate their entire history automatically, and large tool/assistant streams are bounded only in the visual copy.
+- WebView event dispatch and UI-thread transitions no longer rely on `async void` or unobserved dispatcher operations.
+- The official WebView now receives the active Visual Studio document, active selection, and open tabs using its expected IDE-context contract, with an editor-view fallback while focus is in the chat.
+- The requested model and reasoning effort are now supplied as host runtime metadata so the assistant can identify the selected model without exposing synthetic text as the user's message.
+- Codex settings now open as an independent document-well tab, leaving chat accessible while changes persist immediately and invalidate every active WebView consumer.
+- Recent task history now uses a bounded local-history popover in Visual Studio, avoiding the incompatible cloud-task component without requiring a ChatGPT web-session credential.
+- VSIX verification now rejects credential files and private signing material before release.
+
 ## 1.2.1 - 2026-05-01
 
 ### Changed

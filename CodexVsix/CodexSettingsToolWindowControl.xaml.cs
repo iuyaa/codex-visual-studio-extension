@@ -13,6 +13,7 @@ public partial class CodexSettingsToolWindowControl : UserControl
 
     public CodexSettingsToolWindowControl()
     {
+        ThreadHelper.ThrowIfNotOnUIThread();
         try
         {
             InitializeComponent();

@@ -12,5 +12,14 @@ public sealed class CodexManagedMcpServer
 
     public string Arguments { get; set; } = string.Empty;
 
+    // Kept as a UI compatibility alias for existing XAML templates. The
+    // persisted setting remains the single Arguments property.
+    [Newtonsoft.Json.JsonIgnore]
+    public string ArgumentsText
+    {
+        get => Arguments;
+        set => Arguments = value ?? string.Empty;
+    }
+
     public string Url { get; set; } = string.Empty;
 }

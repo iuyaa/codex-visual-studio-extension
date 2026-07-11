@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -12,6 +13,7 @@ using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using CodexVsix.Models;
 using CodexVsix.Services;
+using CodexVsix.UI;
 using CodexVsix.ViewModels;
 using Microsoft.VisualStudio.Shell;
 
@@ -28,9 +30,12 @@ public partial class CodexToolWindowControl : UserControl
     private bool _chatScrollToEndScheduled;
     private UserInputPromptWindow? _userInputPromptWindow;
     private bool _suppressUserInputWindowClosedCancel;
+    private readonly CodexOfficialWebViewHost _officialWebViewHost;
+    private bool _officialWebViewFallbackRequested;
 
     public CodexToolWindowControl()
     {
+        ThreadHelper.ThrowIfNotOnUIThread();
         try
         {
             InitializeComponent();
@@ -52,6 +57,15 @@ public partial class CodexToolWindowControl : UserControl
         }
 
         DataContext = _viewModel;
+        _officialWebViewHost = new CodexOfficialWebViewHost(_viewModel);
+        Grid.SetColumnSpan(_officialWebViewHost, 2);
+        Panel.SetZIndex(_officialWebViewHost, 1000);
+        _officialWebViewHost.FallbackRequested += (_, _) =>
+        {
+            _officialWebViewFallbackRequested = true;
+            UpdateOfficialWebViewVisibility();
+        };
+        RootLayoutGrid.Children.Add(_officialWebViewHost);
         _viewModel.Messages.CollectionChanged += OnMessagesCollectionChanged;
         foreach (var message in _viewModel.Messages)
         {
@@ -68,8 +82,9 @@ public partial class CodexToolWindowControl : UserControl
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _viewModel.EnsureToolWindowStartupState();
+        UpdateOfficialWebViewVisibility();
         UpdatePromptTextBoxMaxHeight();
-        ScrollChatToEnd();
+        ScrollChatToEndAsync().FileAndForget("CodexVsix/ScrollOnLoad");
         SyncUserInputPromptWindow();
     }
 
@@ -153,14 +168,14 @@ public partial class CodexToolWindowControl : UserControl
             }
         }
 
-        ScrollChatToEnd();
+        ScrollChatToEndAsync().FileAndForget("CodexVsix/ScrollOnMessagesChanged");
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (string.Equals(e.PropertyName, nameof(CodexToolWindowViewModel.IsBusy), StringComparison.Ordinal))
         {
-            ScrollChatToEnd();
+            ScrollChatToEndAsync().FileAndForget("CodexVsix/ScrollOnBusyChanged");
         }
 
         if (string.IsNullOrEmpty(e.PropertyName)
@@ -169,9 +184,43 @@ public partial class CodexToolWindowControl : UserControl
         {
             SyncUserInputPromptWindow();
         }
+
+        if (string.IsNullOrEmpty(e.PropertyName)
+            || string.Equals(e.PropertyName, nameof(CodexToolWindowViewModel.CurrentApprovalPrompt), StringComparison.Ordinal)
+            || string.Equals(e.PropertyName, nameof(CodexToolWindowViewModel.HasCurrentApprovalPrompt), StringComparison.Ordinal))
+        {
+            UpdateOfficialWebViewVisibility();
+        }
+
+        if (string.Equals(e.PropertyName, nameof(CodexToolWindowViewModel.FocusComposerRequestVersion), StringComparison.Ordinal))
+        {
+            FocusPromptComposerAsync().FileAndForget("CodexVsix/FocusComposer");
+        }
     }
 
-    private void ScrollChatToEnd()
+    private async Task FocusPromptComposerAsync()
+    {
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        if (_officialWebViewHost.Visibility == Visibility.Visible
+            && CodexOfficialWebViewHostRegistry.TryFocusComposer())
+        {
+            return;
+        }
+
+        await Task.Yield();
+        PromptTextBox.Focus();
+        PromptTextBox.CaretIndex = PromptTextBox.Text?.Length ?? 0;
+    }
+
+    private void UpdateOfficialWebViewVisibility()
+    {
+        _officialWebViewHost.Visibility = !_officialWebViewFallbackRequested
+            && !_viewModel.HasCurrentApprovalPrompt
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
+
+    private async Task ScrollChatToEndAsync()
     {
         if (_chatScrollToEndScheduled)
         {
@@ -179,16 +228,15 @@ public partial class CodexToolWindowControl : UserControl
         }
 
         _chatScrollToEndScheduled = true;
-        _ = Dispatcher.InvokeAsync(() =>
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        await Task.Yield();
+        _chatScrollToEndScheduled = false;
+        if (_viewModel.Messages.Count == 0)
         {
-            _chatScrollToEndScheduled = false;
-            if (_viewModel.Messages.Count == 0)
-            {
-                return;
-            }
+            return;
+        }
 
-            ChatContentHost.ScrollIntoView(_viewModel.Messages[_viewModel.Messages.Count - 1]);
-        }, DispatcherPriority.Background);
+        ChatContentHost.ScrollIntoView(_viewModel.Messages[_viewModel.Messages.Count - 1]);
     }
 
     private void SubscribeMessage(ChatMessage message)
@@ -218,7 +266,7 @@ public partial class CodexToolWindowControl : UserControl
             || string.Equals(e.PropertyName, nameof(ChatMessage.DisplayText), StringComparison.Ordinal)
             || string.Equals(e.PropertyName, nameof(ChatMessage.Detail), StringComparison.Ordinal))
         {
-            ScrollChatToEnd();
+            ScrollChatToEndAsync().FileAndForget("CodexVsix/ScrollOnMessageChanged");
         }
     }
 
@@ -360,14 +408,42 @@ public partial class CodexToolWindowControl : UserControl
 
     private void OnPromptTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        if (e.Key != Key.Enter)
+        {
+            return;
+        }
+
+        var modifiers = Keyboard.Modifiers;
+        var isExplicitSendShortcut = (modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+        var isShiftEnter = (modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
+        var isAltEnter = (modifiers & ModifierKeys.Alt) == ModifierKeys.Alt;
+        var behavior = _viewModel.Settings.ComposerEnterBehavior ?? "enter";
+        var enterSendsPrompt = !isShiftEnter
+            && !isAltEnter
+            && (string.Equals(behavior, "enter", StringComparison.OrdinalIgnoreCase)
+                || (string.Equals(behavior, "cmdIfMultiline", StringComparison.OrdinalIgnoreCase)
+                    && !IsMultilineComposer(sender as TextBox)));
+
+        if (isExplicitSendShortcut || enterSendsPrompt)
         {
             ExecuteSendShortcut(e);
         }
     }
 
+    private static bool IsMultilineComposer(TextBox? textBox)
+    {
+        if (textBox is null)
+        {
+            return false;
+        }
+
+        return textBox.LineCount > 1
+            || (textBox.Text?.IndexOfAny(new[] { '\r', '\n' }) ?? -1) >= 0;
+    }
+
     private void OnLanguageOptionsSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        ThreadHelper.ThrowIfNotOnUIThread();
         if (sender is not ListBox listBox || listBox.SelectedValue is not string value)
         {
             return;
@@ -378,6 +454,7 @@ public partial class CodexToolWindowControl : UserControl
 
     private void OnLanguageOptionClick(object sender, RoutedEventArgs e)
     {
+        ThreadHelper.ThrowIfNotOnUIThread();
         if (sender is not FrameworkElement element || element.Tag is not string value)
         {
             return;
@@ -393,6 +470,7 @@ public partial class CodexToolWindowControl : UserControl
 
     private void OnLanguageOptionPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        ThreadHelper.ThrowIfNotOnUIThread();
         if (sender is not FrameworkElement element || element.Tag is not string value)
         {
             return;
@@ -413,11 +491,9 @@ public partial class CodexToolWindowControl : UserControl
             return;
         }
 
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            LanguageSearchTextBox.Focus();
-            Keyboard.Focus(LanguageSearchTextBox);
-        }), DispatcherPriority.Input);
+        ThreadHelper.ThrowIfNotOnUIThread();
+        LanguageSearchTextBox.Focus();
+        Keyboard.Focus(LanguageSearchTextBox);
     }
 
     private void OnHistorySearchPanelIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -427,11 +503,9 @@ public partial class CodexToolWindowControl : UserControl
             return;
         }
 
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            HistorySearchTextBox.Focus();
-            Keyboard.Focus(HistorySearchTextBox);
-        }), DispatcherPriority.Input);
+        ThreadHelper.ThrowIfNotOnUIThread();
+        HistorySearchTextBox.Focus();
+        Keyboard.Focus(HistorySearchTextBox);
     }
 
     protected override void OnPreviewMouseMove(MouseEventArgs e)

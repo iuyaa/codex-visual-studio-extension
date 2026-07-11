@@ -15,3 +15,4 @@
 *.exe binary
 *.png binary
 *.vsix binary
+CodexVsix/UI/Assets/mermaid.min.js binary

@@ -5,11 +5,15 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using CodexVsix.Services;
 
 namespace CodexVsix.UI;
 
 public sealed class ChatMarkdownViewer : RichTextBox
 {
+    private const int MaxRenderedMarkdownLength = 40000;
+    private const int MaxMeasuredLines = 250;
+    private const int MaxMeasuredLineLength = 500;
     private const double MinimumNaturalWidth = 24d;
     private const double NaturalWidthPadding = 20d;
 
@@ -140,7 +144,7 @@ public sealed class ChatMarkdownViewer : RichTextBox
 
     private void RenderDocument()
     {
-        var markdown = MarkdownText ?? string.Empty;
+        var markdown = LimitMarkdownForRender(MarkdownText ?? string.Empty);
         var workspaceRoot = WorkspaceRoot ?? string.Empty;
         if (!_pendingRender
             && string.Equals(_renderedMarkdownText, markdown, StringComparison.Ordinal)
@@ -191,14 +195,26 @@ public sealed class ChatMarkdownViewer : RichTextBox
 
         var maxLineWidth = 0d;
         var lines = markdown.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var measuredLines = 0;
         foreach (var rawLine in lines)
         {
+            if (measuredLines >= MaxMeasuredLines)
+            {
+                return maxWidth;
+            }
+
             var line = rawLine.Trim();
             if (line.Length == 0)
             {
                 continue;
             }
 
+            if (line.Length > MaxMeasuredLineLength)
+            {
+                line = line.Substring(0, MaxMeasuredLineLength);
+            }
+
+            measuredLines++;
             maxLineWidth = Math.Max(maxLineWidth, MeasureLineWidth(line));
             if (maxLineWidth + NaturalWidthPadding >= maxWidth)
             {
@@ -207,6 +223,18 @@ public sealed class ChatMarkdownViewer : RichTextBox
         }
 
         return Math.Ceiling(maxLineWidth + NaturalWidthPadding);
+    }
+
+    private static string LimitMarkdownForRender(string markdown)
+    {
+        if (string.IsNullOrEmpty(markdown) || markdown.Length <= MaxRenderedMarkdownLength)
+        {
+            return markdown;
+        }
+
+        return markdown.Substring(0, MaxRenderedMarkdownLength).TrimEnd()
+            + "\n\n"
+            + new LocalizationService().MarkdownPreviewTruncationNotice;
     }
 
     private static bool ContainsWidthHungryMarkdown(string markdown)

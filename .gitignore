@@ -32,6 +32,27 @@ build-markdown.log
 temp/package/
 temp/*.tgz
 
+# Local credentials and signing material
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+auth.json
+**/auth.json
+credentials.json
+**/credentials.json
+secrets.json
+**/secrets.json
+*.pfx
+*.p12
+*.pem
+*.key
+*.snk
+*.jks
+*.keystore
+
 # OS files
 Thumbs.db
 .DS_Store

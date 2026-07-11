@@ -12,7 +12,7 @@ internal static class CodexExecutableResolver
     {
         var trimmed = string.IsNullOrWhiteSpace(configuredPath)
             ? DefaultWindowsExecutableName()
-            : configuredPath.Trim();
+            : configuredPath!.Trim().Trim('"');
 
         if (!IsWindows())
         {
@@ -60,14 +60,15 @@ internal static class CodexExecutableResolver
 
     private static string ResolveDirectPath(string configuredPath)
     {
-        if (Path.IsPathRooted(configuredPath) && File.Exists(configuredPath))
+        var expandedPath = Environment.ExpandEnvironmentVariables(configuredPath);
+        if (Path.IsPathRooted(expandedPath) && File.Exists(expandedPath))
         {
-            return configuredPath;
+            return expandedPath;
         }
 
-        if ((configuredPath.Contains("\\") || configuredPath.Contains("/")) && File.Exists(configuredPath))
+        if ((expandedPath.Contains("\\") || expandedPath.Contains("/")) && File.Exists(expandedPath))
         {
-            return Path.GetFullPath(configuredPath);
+            return Path.GetFullPath(expandedPath);
         }
 
         return string.Empty;
@@ -81,13 +82,19 @@ internal static class CodexExecutableResolver
         var candidateNames = BuildCandidateNames(configuredPath);
         foreach (var directory in pathEntries)
         {
-            var normalizedDirectory = directory.Trim().Trim('"');
+            var normalizedDirectory = Environment.ExpandEnvironmentVariables(directory.Trim().Trim('"'));
             foreach (var candidateName in candidateNames)
             {
-                var candidatePath = Path.Combine(normalizedDirectory, candidateName);
-                if (File.Exists(candidatePath))
+                try
                 {
-                    return candidatePath;
+                    var candidatePath = Path.Combine(normalizedDirectory, candidateName);
+                    if (File.Exists(candidatePath))
+                    {
+                        return candidatePath;
+                    }
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+                {
                 }
             }
         }
@@ -199,8 +206,21 @@ internal static class CodexExecutableResolver
                 return string.Empty;
             }
 
+            if (!process.WaitForExit(3000))
+            {
+                try
+                {
+                    process.Kill();
+                    process.WaitForExit(1000);
+                }
+                catch
+                {
+                }
+
+                return string.Empty;
+            }
+
             var output = process.StandardOutput.ReadToEnd().Trim();
-            process.WaitForExit(3000);
             return process.ExitCode == 0 && File.Exists(output) ? output : string.Empty;
         }
         catch

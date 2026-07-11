@@ -1,11 +1,15 @@
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
+using System.Threading;
 using CodexVsix.Models;
 
 namespace CodexVsix.Services;
 
 public sealed class LocalizationService
 {
+    private static string _defaultLanguageOverride = string.Empty;
+
     private static readonly IReadOnlyDictionary<string, string> EnglishStrings = new Dictionary<string, string>
     {
         ["TopicsTitle"] = "Topics",
@@ -66,6 +70,48 @@ public sealed class LocalizationService
         ["ManagedMcpArgsLabel"] = "Arguments, one per line",
         ["ManagedMcpUrlLabel"] = "URL",
         ["ManagedMcpStdioOption"] = "Command (stdio)",
+        ["ExtensionSettingsLabel"] = "Extension settings",
+        ["OpenExtensionSettingsButton"] = "Open settings.json",
+        ["ComposerEnterBehaviorLabel"] = "Composer enter behavior",
+        ["FollowUpModeLabel"] = "Follow-up mode",
+        ["ReviewDeliveryLabel"] = "Review delivery",
+        ["OpenOnStartupLabel"] = "Open Codex on startup",
+        ["AutoCompactLongConversationsLabel"] = "Automatically compact context when it reaches 85%",
+        ["CompactCurrentConversationButton"] = "Compact current conversation",
+        ["ModelLabel"] = "Model",
+        ["RefreshModelsButton"] = "Refresh models",
+        ["CustomModelLabel"] = "Custom model",
+        ["AddModelButton"] = "Add model",
+        ["ClearPromptHistoryButton"] = "Clear local prompt history",
+        ["PromptHistoryTruncationNotice"] = "[Prompt truncated in local history to keep Visual Studio responsive.]",
+        ["SelectCodeOrOpenFileMessage"] = "Select code in the editor or open a file before adding context to Codex.",
+        ["SelectFileOrOpenFileMessage"] = "Select a file in Solution Explorer or open a file before adding it to Codex.",
+        ["SelectCodeForReviewMessage"] = "Select code in the editor before starting a Codex review.",
+        ["OpenFileOrSelectTodoMessage"] = "Open a file or select a TODO before asking Codex to implement it.",
+        ["IdeSelectionInstruction"] = "Use this Visual Studio selection as the target context.",
+        ["ImplementWithCodexInstruction"] = "Implement this with Codex.",
+        ["ActiveEditorLabel"] = "active editor",
+        ["CustomModelAddedStatus"] = "Custom model added.",
+        ["ModelsRefreshingStatus"] = "Refreshing models...",
+        ["ModelsNotReadyStatus"] = "Codex is not ready. Keeping local models.",
+        ["ModelsEmptyStatus"] = "No remote models were returned. Keeping the current list.",
+        ["ModelsUpdatedStatus"] = "Models refreshed from Codex.",
+        ["ModelsRefreshFailedStatus"] = "Could not refresh models. Keeping the current list.",
+        ["ConversationTrimmedTitle"] = "Conversation trimmed",
+        ["OmittedConversationMessageText"] = "Older messages are hidden in the Visual Studio extension to keep this long conversation responsive. Continue the same Codex thread normally.",
+        ["MarkdownPreviewTruncationNotice"] = "[Markdown preview truncated to keep the chat responsive.]",
+        ["SkillScopeSystem"] = "System",
+        ["SkillScopeGlobal"] = "Global",
+        ["SkillScopeWorkspace"] = "Workspace",
+        ["SkillScopeExternal"] = "External",
+        ["FollowUpQueueOption"] = "Queue",
+        ["FollowUpSteerOption"] = "Steer",
+        ["FollowUpInterruptOption"] = "Interrupt",
+        ["ComposerEnterSendsOption"] = "Enter sends",
+        ["ComposerCtrlEnterMultilineOption"] = "Ctrl+Enter for multiline",
+        ["ComposerCtrlEnterAlwaysOption"] = "Ctrl+Enter always",
+        ["ReviewInlineOption"] = "Inline",
+        ["ReviewDetachedOption"] = "Detached thread",
         ["ManagedMcpUrlOption"] = "URL",
         ["ManagedMcpAddStdioButton"] = "Add stdio",
         ["ManagedMcpAddUrlButton"] = "Add URL",
@@ -184,7 +230,9 @@ public sealed class LocalizationService
         ["ReasoningLow"] = "Low",
         ["ReasoningMedium"] = "Medium",
         ["ReasoningHigh"] = "High",
+        ["ReasoningExtraHigh"] = "Extra high",
         ["ReasoningMax"] = "Maximum",
+        ["ReasoningUltra"] = "Ultra",
         ["ReasoningMinimal"] = "Minimal",
         ["SpeedLabel"] = "Speed",
         ["SpeedDefault"] = "Standard",
@@ -379,7 +427,9 @@ public sealed class LocalizationService
         ["ReasoningLow"] = "Baixa",
         ["ReasoningMedium"] = "Média",
         ["ReasoningHigh"] = "Alta",
+        ["ReasoningExtraHigh"] = "Extra alta",
         ["ReasoningMax"] = "Máxima",
+        ["ReasoningUltra"] = "Ultra",
         ["ReasoningMinimal"] = "Mínima",
         ["SpeedLabel"] = "Velocidade",
         ["SpeedDefault"] = "Padrão",
@@ -412,6 +462,48 @@ public sealed class LocalizationService
         ["ManagedMcpArgsLabel"] = "Argumentos, um por linha",
         ["ManagedMcpUrlLabel"] = "URL",
         ["ManagedMcpStdioOption"] = "Comando (stdio)",
+        ["ExtensionSettingsLabel"] = "Configurações da extensão",
+        ["OpenExtensionSettingsButton"] = "Abrir settings.json",
+        ["ComposerEnterBehaviorLabel"] = "Comportamento da tecla Enter",
+        ["FollowUpModeLabel"] = "Modo de acompanhamento",
+        ["ReviewDeliveryLabel"] = "Entrega da revisão",
+        ["OpenOnStartupLabel"] = "Abrir o Codex ao iniciar",
+        ["AutoCompactLongConversationsLabel"] = "Compactar o contexto automaticamente quando atingir 85%",
+        ["CompactCurrentConversationButton"] = "Compactar conversa atual",
+        ["ModelLabel"] = "Modelo",
+        ["RefreshModelsButton"] = "Atualizar modelos",
+        ["CustomModelLabel"] = "Modelo personalizado",
+        ["AddModelButton"] = "Adicionar modelo",
+        ["ClearPromptHistoryButton"] = "Limpar histórico local de prompts",
+        ["PromptHistoryTruncationNotice"] = "[Prompt truncado no histórico local para manter o Visual Studio responsivo.]",
+        ["SelectCodeOrOpenFileMessage"] = "Selecione código no editor ou abra um arquivo antes de adicionar contexto ao Codex.",
+        ["SelectFileOrOpenFileMessage"] = "Selecione um arquivo no Gerenciador de Soluções ou abra um arquivo antes de adicioná-lo ao Codex.",
+        ["SelectCodeForReviewMessage"] = "Selecione código no editor antes de iniciar uma revisão com o Codex.",
+        ["OpenFileOrSelectTodoMessage"] = "Abra um arquivo ou selecione um TODO antes de pedir ao Codex para implementá-lo.",
+        ["IdeSelectionInstruction"] = "Use esta seleção do Visual Studio como contexto-alvo.",
+        ["ImplementWithCodexInstruction"] = "Implemente isto com o Codex.",
+        ["ActiveEditorLabel"] = "editor ativo",
+        ["CustomModelAddedStatus"] = "Modelo personalizado adicionado.",
+        ["ModelsRefreshingStatus"] = "Atualizando modelos...",
+        ["ModelsNotReadyStatus"] = "O Codex não está pronto. Mantendo os modelos locais.",
+        ["ModelsEmptyStatus"] = "Nenhum modelo remoto foi retornado. Mantendo a lista atual.",
+        ["ModelsUpdatedStatus"] = "Modelos atualizados pelo Codex.",
+        ["ModelsRefreshFailedStatus"] = "Falha ao atualizar modelos. Mantendo a lista atual.",
+        ["ConversationTrimmedTitle"] = "Conversa reduzida",
+        ["OmittedConversationMessageText"] = "Mensagens antigas estão ocultas na extensão do Visual Studio para manter esta conversa longa responsiva. Continue normalmente no mesmo tópico do Codex.",
+        ["MarkdownPreviewTruncationNotice"] = "[Prévia Markdown truncada para manter o chat responsivo.]",
+        ["SkillScopeSystem"] = "Sistema",
+        ["SkillScopeGlobal"] = "Global",
+        ["SkillScopeWorkspace"] = "Workspace",
+        ["SkillScopeExternal"] = "Externa",
+        ["FollowUpQueueOption"] = "Enfileirar",
+        ["FollowUpSteerOption"] = "Orientar",
+        ["FollowUpInterruptOption"] = "Interromper",
+        ["ComposerEnterSendsOption"] = "Enter envia",
+        ["ComposerCtrlEnterMultilineOption"] = "Ctrl+Enter para múltiplas linhas",
+        ["ComposerCtrlEnterAlwaysOption"] = "Ctrl+Enter sempre",
+        ["ReviewInlineOption"] = "Na conversa",
+        ["ReviewDetachedOption"] = "Tópico separado",
         ["ManagedMcpUrlOption"] = "URL",
         ["ManagedMcpAddStdioButton"] = "Adicionar stdio",
         ["ManagedMcpAddUrlButton"] = "Adicionar URL",
@@ -657,7 +749,9 @@ public sealed class LocalizationService
         ["ReasoningLow"] = "Baja",
         ["ReasoningMedium"] = "Media",
         ["ReasoningHigh"] = "Alta",
+        ["ReasoningExtraHigh"] = "Extra alta",
         ["ReasoningMax"] = "Máxima",
+        ["ReasoningUltra"] = "Ultra",
         ["ReasoningMinimal"] = "Mínima",
         ["AccountTitle"] = "Cuenta",
         ["AccountSubtitle"] = "Administra la cuenta de Codex usada por esta extensión.",
@@ -702,6 +796,48 @@ public sealed class LocalizationService
         ["ManagedMcpArgsLabel"] = "Argumentos, uno por línea",
         ["ManagedMcpUrlLabel"] = "URL",
         ["ManagedMcpStdioOption"] = "Comando (stdio)",
+        ["ExtensionSettingsLabel"] = "Configuración de la extensión",
+        ["OpenExtensionSettingsButton"] = "Abrir settings.json",
+        ["ComposerEnterBehaviorLabel"] = "Comportamiento de la tecla Entrar",
+        ["FollowUpModeLabel"] = "Modo de seguimiento",
+        ["ReviewDeliveryLabel"] = "Entrega de la revisión",
+        ["OpenOnStartupLabel"] = "Abrir Codex al iniciar",
+        ["AutoCompactLongConversationsLabel"] = "Compactar el contexto automáticamente al alcanzar el 85%",
+        ["CompactCurrentConversationButton"] = "Compactar conversación actual",
+        ["ModelLabel"] = "Modelo",
+        ["RefreshModelsButton"] = "Actualizar modelos",
+        ["CustomModelLabel"] = "Modelo personalizado",
+        ["AddModelButton"] = "Añadir modelo",
+        ["ClearPromptHistoryButton"] = "Borrar historial local de prompts",
+        ["PromptHistoryTruncationNotice"] = "[Prompt truncado en el historial local para mantener Visual Studio ágil.]",
+        ["SelectCodeOrOpenFileMessage"] = "Selecciona código en el editor o abre un archivo antes de añadir contexto a Codex.",
+        ["SelectFileOrOpenFileMessage"] = "Selecciona un archivo en el Explorador de soluciones o abre uno antes de añadirlo a Codex.",
+        ["SelectCodeForReviewMessage"] = "Selecciona código en el editor antes de iniciar una revisión con Codex.",
+        ["OpenFileOrSelectTodoMessage"] = "Abre un archivo o selecciona un TODO antes de pedirle a Codex que lo implemente.",
+        ["IdeSelectionInstruction"] = "Usa esta selección de Visual Studio como contexto de destino.",
+        ["ImplementWithCodexInstruction"] = "Implementa esto con Codex.",
+        ["ActiveEditorLabel"] = "editor activo",
+        ["CustomModelAddedStatus"] = "Modelo personalizado añadido.",
+        ["ModelsRefreshingStatus"] = "Actualizando modelos...",
+        ["ModelsNotReadyStatus"] = "Codex no está listo. Se mantienen los modelos locales.",
+        ["ModelsEmptyStatus"] = "No se devolvieron modelos remotos. Se mantiene la lista actual.",
+        ["ModelsUpdatedStatus"] = "Modelos actualizados desde Codex.",
+        ["ModelsRefreshFailedStatus"] = "No se pudieron actualizar los modelos. Se mantiene la lista actual.",
+        ["ConversationTrimmedTitle"] = "Conversación recortada",
+        ["OmittedConversationMessageText"] = "Los mensajes antiguos están ocultos en la extensión de Visual Studio para mantener ágil esta conversación larga. Continúa normalmente en el mismo tema de Codex.",
+        ["MarkdownPreviewTruncationNotice"] = "[Vista previa de Markdown truncada para mantener el chat ágil.]",
+        ["SkillScopeSystem"] = "Sistema",
+        ["SkillScopeGlobal"] = "Global",
+        ["SkillScopeWorkspace"] = "Workspace",
+        ["SkillScopeExternal"] = "Externo",
+        ["FollowUpQueueOption"] = "En cola",
+        ["FollowUpSteerOption"] = "Orientar",
+        ["FollowUpInterruptOption"] = "Interrumpir",
+        ["ComposerEnterSendsOption"] = "Entrar envía",
+        ["ComposerCtrlEnterMultilineOption"] = "Ctrl+Entrar para varias líneas",
+        ["ComposerCtrlEnterAlwaysOption"] = "Ctrl+Entrar siempre",
+        ["ReviewInlineOption"] = "En la conversación",
+        ["ReviewDetachedOption"] = "Hilo separado",
         ["ManagedMcpUrlOption"] = "URL",
         ["ManagedMcpAddStdioButton"] = "Añadir stdio",
         ["ManagedMcpAddUrlButton"] = "Añadir URL",
@@ -951,7 +1087,9 @@ public sealed class LocalizationService
         ["ReasoningLow"] = "Faible",
         ["ReasoningMedium"] = "Moyenne",
         ["ReasoningHigh"] = "Élevée",
+        ["ReasoningExtraHigh"] = "Très élevée",
         ["ReasoningMax"] = "Maximale",
+        ["ReasoningUltra"] = "Ultra",
         ["ReasoningMinimal"] = "Minimale",
         ["AccountTitle"] = "Compte",
         ["AccountSubtitle"] = "Gérez le compte Codex utilisé par cette extension.",
@@ -996,6 +1134,48 @@ public sealed class LocalizationService
         ["ManagedMcpArgsLabel"] = "Arguments, un par ligne",
         ["ManagedMcpUrlLabel"] = "URL",
         ["ManagedMcpStdioOption"] = "Commande (stdio)",
+        ["ExtensionSettingsLabel"] = "Paramètres de l’extension",
+        ["OpenExtensionSettingsButton"] = "Ouvrir settings.json",
+        ["ComposerEnterBehaviorLabel"] = "Comportement de la touche Entrée",
+        ["FollowUpModeLabel"] = "Mode de suivi",
+        ["ReviewDeliveryLabel"] = "Affichage de la revue",
+        ["OpenOnStartupLabel"] = "Ouvrir Codex au démarrage",
+        ["AutoCompactLongConversationsLabel"] = "Compacter automatiquement le contexte lorsqu’il atteint 85 %",
+        ["CompactCurrentConversationButton"] = "Compacter la conversation actuelle",
+        ["ModelLabel"] = "Modèle",
+        ["RefreshModelsButton"] = "Actualiser les modèles",
+        ["CustomModelLabel"] = "Modèle personnalisé",
+        ["AddModelButton"] = "Ajouter le modèle",
+        ["ClearPromptHistoryButton"] = "Effacer l’historique local des prompts",
+        ["PromptHistoryTruncationNotice"] = "[Prompt tronqué dans l’historique local pour préserver la réactivité de Visual Studio.]",
+        ["SelectCodeOrOpenFileMessage"] = "Sélectionnez du code dans l’éditeur ou ouvrez un fichier avant d’ajouter du contexte à Codex.",
+        ["SelectFileOrOpenFileMessage"] = "Sélectionnez un fichier dans l’Explorateur de solutions ou ouvrez-en un avant de l’ajouter à Codex.",
+        ["SelectCodeForReviewMessage"] = "Sélectionnez du code dans l’éditeur avant de lancer une révision avec Codex.",
+        ["OpenFileOrSelectTodoMessage"] = "Ouvrez un fichier ou sélectionnez un TODO avant de demander à Codex de l’implémenter.",
+        ["IdeSelectionInstruction"] = "Utilisez cette sélection de Visual Studio comme contexte cible.",
+        ["ImplementWithCodexInstruction"] = "Implémentez ceci avec Codex.",
+        ["ActiveEditorLabel"] = "éditeur actif",
+        ["CustomModelAddedStatus"] = "Modèle personnalisé ajouté.",
+        ["ModelsRefreshingStatus"] = "Actualisation des modèles...",
+        ["ModelsNotReadyStatus"] = "Codex n’est pas prêt. Les modèles locaux sont conservés.",
+        ["ModelsEmptyStatus"] = "Aucun modèle distant n’a été renvoyé. La liste actuelle est conservée.",
+        ["ModelsUpdatedStatus"] = "Modèles actualisés depuis Codex.",
+        ["ModelsRefreshFailedStatus"] = "Impossible d’actualiser les modèles. La liste actuelle est conservée.",
+        ["ConversationTrimmedTitle"] = "Conversation réduite",
+        ["OmittedConversationMessageText"] = "Les anciens messages sont masqués dans l’extension Visual Studio afin de préserver la réactivité de cette longue conversation. Continuez normalement dans le même sujet Codex.",
+        ["MarkdownPreviewTruncationNotice"] = "[Aperçu Markdown tronqué pour préserver la réactivité du chat.]",
+        ["SkillScopeSystem"] = "Système",
+        ["SkillScopeGlobal"] = "Global",
+        ["SkillScopeWorkspace"] = "Espace de travail",
+        ["SkillScopeExternal"] = "Externe",
+        ["FollowUpQueueOption"] = "Mettre en file",
+        ["FollowUpSteerOption"] = "Orienter",
+        ["FollowUpInterruptOption"] = "Interrompre",
+        ["ComposerEnterSendsOption"] = "Entrée envoie",
+        ["ComposerCtrlEnterMultilineOption"] = "Ctrl+Entrée pour plusieurs lignes",
+        ["ComposerCtrlEnterAlwaysOption"] = "Toujours Ctrl+Entrée",
+        ["ReviewInlineOption"] = "Dans la conversation",
+        ["ReviewDetachedOption"] = "Fil séparé",
         ["ManagedMcpUrlOption"] = "URL",
         ["ManagedMcpAddStdioButton"] = "Ajouter stdio",
         ["ManagedMcpAddUrlButton"] = "Ajouter une URL",
@@ -1245,7 +1425,9 @@ public sealed class LocalizationService
         ["ReasoningLow"] = "Niedrig",
         ["ReasoningMedium"] = "Mittel",
         ["ReasoningHigh"] = "Hoch",
+        ["ReasoningExtraHigh"] = "Sehr hoch",
         ["ReasoningMax"] = "Maximal",
+        ["ReasoningUltra"] = "Ultra",
         ["ReasoningMinimal"] = "Minimal",
         ["AccountTitle"] = "Konto",
         ["AccountSubtitle"] = "Verwalten Sie das Codex-Konto, das von dieser Erweiterung verwendet wird.",
@@ -1290,6 +1472,48 @@ public sealed class LocalizationService
         ["ManagedMcpArgsLabel"] = "Argumente, eine Zeile pro Eintrag",
         ["ManagedMcpUrlLabel"] = "URL",
         ["ManagedMcpStdioOption"] = "Befehl (stdio)",
+        ["ExtensionSettingsLabel"] = "Erweiterungseinstellungen",
+        ["OpenExtensionSettingsButton"] = "settings.json öffnen",
+        ["ComposerEnterBehaviorLabel"] = "Verhalten der Eingabetaste",
+        ["FollowUpModeLabel"] = "Folgemodus",
+        ["ReviewDeliveryLabel"] = "Review-Ausgabe",
+        ["OpenOnStartupLabel"] = "Codex beim Start öffnen",
+        ["AutoCompactLongConversationsLabel"] = "Kontext bei 85 % automatisch komprimieren",
+        ["CompactCurrentConversationButton"] = "Aktuelle Unterhaltung komprimieren",
+        ["ModelLabel"] = "Modell",
+        ["RefreshModelsButton"] = "Modelle aktualisieren",
+        ["CustomModelLabel"] = "Benutzerdefiniertes Modell",
+        ["AddModelButton"] = "Modell hinzufügen",
+        ["ClearPromptHistoryButton"] = "Lokalen Prompt-Verlauf löschen",
+        ["PromptHistoryTruncationNotice"] = "[Prompt im lokalen Verlauf gekürzt, damit Visual Studio reaktionsfähig bleibt.]",
+        ["SelectCodeOrOpenFileMessage"] = "Wählen Sie Code im Editor aus oder öffnen Sie eine Datei, bevor Sie Codex Kontext hinzufügen.",
+        ["SelectFileOrOpenFileMessage"] = "Wählen Sie im Projektmappen-Explorer eine Datei aus oder öffnen Sie eine, bevor Sie sie Codex hinzufügen.",
+        ["SelectCodeForReviewMessage"] = "Wählen Sie Code im Editor aus, bevor Sie eine Codex-Überprüfung starten.",
+        ["OpenFileOrSelectTodoMessage"] = "Öffnen Sie eine Datei oder wählen Sie ein TODO aus, bevor Codex es implementieren soll.",
+        ["IdeSelectionInstruction"] = "Verwenden Sie diese Visual-Studio-Auswahl als Zielkontext.",
+        ["ImplementWithCodexInstruction"] = "Implementiere dies mit Codex.",
+        ["ActiveEditorLabel"] = "aktiver Editor",
+        ["CustomModelAddedStatus"] = "Benutzerdefiniertes Modell hinzugefügt.",
+        ["ModelsRefreshingStatus"] = "Modelle werden aktualisiert...",
+        ["ModelsNotReadyStatus"] = "Codex ist nicht bereit. Lokale Modelle werden beibehalten.",
+        ["ModelsEmptyStatus"] = "Es wurden keine entfernten Modelle zurückgegeben. Die aktuelle Liste bleibt erhalten.",
+        ["ModelsUpdatedStatus"] = "Modelle wurden von Codex aktualisiert.",
+        ["ModelsRefreshFailedStatus"] = "Modelle konnten nicht aktualisiert werden. Die aktuelle Liste bleibt erhalten.",
+        ["ConversationTrimmedTitle"] = "Unterhaltung gekürzt",
+        ["OmittedConversationMessageText"] = "Ältere Nachrichten werden in der Visual-Studio-Erweiterung ausgeblendet, damit diese lange Unterhaltung reaktionsfähig bleibt. Setzen Sie dasselbe Codex-Thema normal fort.",
+        ["MarkdownPreviewTruncationNotice"] = "[Markdown-Vorschau gekürzt, damit der Chat reaktionsfähig bleibt.]",
+        ["SkillScopeSystem"] = "System",
+        ["SkillScopeGlobal"] = "Global",
+        ["SkillScopeWorkspace"] = "Arbeitsbereich",
+        ["SkillScopeExternal"] = "Extern",
+        ["FollowUpQueueOption"] = "Einreihen",
+        ["FollowUpSteerOption"] = "Steuern",
+        ["FollowUpInterruptOption"] = "Unterbrechen",
+        ["ComposerEnterSendsOption"] = "Eingabetaste sendet",
+        ["ComposerCtrlEnterMultilineOption"] = "Strg+Eingabe für mehrere Zeilen",
+        ["ComposerCtrlEnterAlwaysOption"] = "Immer Strg+Eingabe",
+        ["ReviewInlineOption"] = "Im Gespräch",
+        ["ReviewDetachedOption"] = "Separater Thread",
         ["ManagedMcpUrlOption"] = "URL",
         ["ManagedMcpAddStdioButton"] = "Stdio hinzufügen",
         ["ManagedMcpAddUrlButton"] = "URL hinzufügen",
@@ -1480,11 +1704,17 @@ public sealed class LocalizationService
 
     public LocalizationService(string? languageOverride = null)
     {
-        var preferredCulture = ResolvePreferredCulture(languageOverride);
+        var effectiveLanguageOverride = languageOverride ?? Volatile.Read(ref _defaultLanguageOverride);
+        var preferredCulture = ResolvePreferredCulture(effectiveLanguageOverride);
 
         Culture = ResolveSupportedCulture(preferredCulture);
         LanguageTag = Culture.Name;
         _strings = GetLanguageStrings(Culture);
+    }
+
+    internal static void SetDefaultLanguageOverride(string? languageOverride)
+    {
+        Volatile.Write(ref _defaultLanguageOverride, (languageOverride ?? string.Empty).Trim());
     }
 
     public CultureInfo Culture { get; }
@@ -1549,6 +1779,40 @@ public sealed class LocalizationService
     public string ManagedMcpArgsLabel => GetLocalizedString("ManagedMcpArgsLabel", "Argumentos, um por linha");
     public string ManagedMcpUrlLabel => GetLocalizedString("ManagedMcpUrlLabel", "URL");
     public string ManagedMcpStdioOption => GetLocalizedString("ManagedMcpStdioOption", "Comando (stdio)");
+    public string ExtensionSettingsLabel => Get("ExtensionSettingsLabel");
+    public string OpenExtensionSettingsButton => Get("OpenExtensionSettingsButton");
+    public string ComposerEnterBehaviorLabel => Get("ComposerEnterBehaviorLabel");
+    public string FollowUpModeLabel => Get("FollowUpModeLabel");
+    public string ReviewDeliveryLabel => Get("ReviewDeliveryLabel");
+    public string OpenOnStartupLabel => Get("OpenOnStartupLabel");
+    public string AutoCompactLongConversationsLabel => Get("AutoCompactLongConversationsLabel");
+    public string CompactCurrentConversationButton => Get("CompactCurrentConversationButton");
+    public string ModelLabel => Get("ModelLabel");
+    public string RefreshModelsButton => Get("RefreshModelsButton");
+    public string CustomModelLabel => Get("CustomModelLabel");
+    public string AddModelButton => Get("AddModelButton");
+    public string ClearPromptHistoryButton => Get("ClearPromptHistoryButton");
+    public string PromptHistoryTruncationNotice => Get("PromptHistoryTruncationNotice");
+    public string SelectCodeOrOpenFileMessage => Get("SelectCodeOrOpenFileMessage");
+    public string SelectFileOrOpenFileMessage => Get("SelectFileOrOpenFileMessage");
+    public string SelectCodeForReviewMessage => Get("SelectCodeForReviewMessage");
+    public string OpenFileOrSelectTodoMessage => Get("OpenFileOrSelectTodoMessage");
+    public string IdeSelectionInstruction => Get("IdeSelectionInstruction");
+    public string ImplementWithCodexInstruction => Get("ImplementWithCodexInstruction");
+    public string ActiveEditorLabel => Get("ActiveEditorLabel");
+    public string CustomModelAddedStatus => Get("CustomModelAddedStatus");
+    public string ModelsRefreshingStatus => Get("ModelsRefreshingStatus");
+    public string ModelsNotReadyStatus => Get("ModelsNotReadyStatus");
+    public string ModelsEmptyStatus => Get("ModelsEmptyStatus");
+    public string ModelsUpdatedStatus => Get("ModelsUpdatedStatus");
+    public string ModelsRefreshFailedStatus => Get("ModelsRefreshFailedStatus");
+    public string ConversationTrimmedTitle => Get("ConversationTrimmedTitle");
+    public string OmittedConversationMessageText => Get("OmittedConversationMessageText");
+    public string MarkdownPreviewTruncationNotice => Get("MarkdownPreviewTruncationNotice");
+    public string SkillScopeSystem => Get("SkillScopeSystem");
+    public string SkillScopeGlobal => Get("SkillScopeGlobal");
+    public string SkillScopeWorkspace => Get("SkillScopeWorkspace");
+    public string SkillScopeExternal => Get("SkillScopeExternal");
     public string ManagedMcpUrlOption => Get("ManagedMcpUrlOption");
     public string ManagedMcpAddStdioButton => GetLocalizedString("ManagedMcpAddStdioButton", "Adicionar stdio");
     public string ManagedMcpAddUrlButton => GetLocalizedString("ManagedMcpAddUrlButton", "Adicionar URL");
@@ -1766,15 +2030,36 @@ public sealed class LocalizationService
     public string ManagedMcpDefaultUrlName => Get("ManagedMcpDefaultUrlName");
     public string MermaidBundleNotFoundFormat => Get("MermaidBundleNotFoundFormat");
 
-    public SelectionOption[] CreateReasoningOptions()
+    public SelectionOption[] CreateReasoningOptions(IEnumerable<string>? supportedReasoningEfforts = null)
     {
-        return new[]
+        var efforts = supportedReasoningEfforts?
+            .Select(CodexModelCatalog.NormalizeReasoningEffort)
+            .Where(effort => !string.IsNullOrWhiteSpace(effort))
+            .Distinct(System.StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (efforts is null || efforts.Length == 0)
         {
-            new SelectionOption(Get("ReasoningMinimal"), "minimal"),
-            new SelectionOption(Get("ReasoningLow"), "low"),
-            new SelectionOption(Get("ReasoningMedium"), "medium"),
-            new SelectionOption(Get("ReasoningHigh"), "high"),
-            new SelectionOption(Get("ReasoningMax"), "xhigh")
+            efforts = CodexModelCatalog.GenericReasoningEfforts.ToArray();
+        }
+
+        return efforts
+            .Select(effort => new SelectionOption(GetReasoningEffortLabel(effort), effort))
+            .ToArray();
+    }
+
+    private string GetReasoningEffortLabel(string effort)
+    {
+        return effort switch
+        {
+            "minimal" => Get("ReasoningMinimal"),
+            "low" => Get("ReasoningLow"),
+            "medium" => Get("ReasoningMedium"),
+            "high" => Get("ReasoningHigh"),
+            "xhigh" => Get("ReasoningExtraHigh"),
+            "max" => Get("ReasoningMax"),
+            "ultra" => Get("ReasoningUltra"),
+            _ => effort
         };
     }
 
@@ -1817,6 +2102,35 @@ public sealed class LocalizationService
             new SelectionOption(Get("SandboxReadOnly"), "read-only"),
             new SelectionOption(Get("SandboxWorkspace"), "workspace-write"),
             new SelectionOption(Get("SandboxFullAccess"), "danger-full-access")
+        };
+    }
+
+    public SelectionOption[] CreateFollowUpQueueModeOptions()
+    {
+        return new[]
+        {
+            new SelectionOption(Get("FollowUpQueueOption"), "queue"),
+            new SelectionOption(Get("FollowUpSteerOption"), "steer"),
+            new SelectionOption(Get("FollowUpInterruptOption"), "interrupt")
+        };
+    }
+
+    public SelectionOption[] CreateComposerEnterBehaviorOptions()
+    {
+        return new[]
+        {
+            new SelectionOption(Get("ComposerEnterSendsOption"), "enter"),
+            new SelectionOption(Get("ComposerCtrlEnterMultilineOption"), "cmdIfMultiline"),
+            new SelectionOption(Get("ComposerCtrlEnterAlwaysOption"), "ctrlEnter")
+        };
+    }
+
+    public SelectionOption[] CreateReviewDeliveryOptions()
+    {
+        return new[]
+        {
+            new SelectionOption(Get("ReviewInlineOption"), "inline"),
+            new SelectionOption(Get("ReviewDetachedOption"), "detached")
         };
     }
 
@@ -1871,7 +2185,7 @@ public sealed class LocalizationService
         {
             try
             {
-                return CultureInfo.GetCultureInfo(languageOverride.Trim());
+                return CultureInfo.GetCultureInfo(languageOverride!.Trim());
             }
             catch (CultureNotFoundException)
             {

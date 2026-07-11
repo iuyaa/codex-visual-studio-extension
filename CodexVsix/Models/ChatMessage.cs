@@ -8,11 +8,20 @@ namespace CodexVsix.Models;
 
 public sealed class ChatMessage : INotifyPropertyChanged
 {
+    private const int MaxMessageTextLength = 60000;
+    private const int MaxMessageDetailLength = 20000;
+    private const string OmittedMiddleMarker = "\n\n[...]\n\n";
+    private const string TruncatedDisplayNotice = "\n\n[Truncated in the Visual Studio extension to keep the chat responsive. The full transcript remains in Codex session history.]";
+
     private string _text;
     private string _displayText;
+    private string _customDisplayText = string.Empty;
     private string? _title;
     private string? _detail;
     private bool _hasCustomDisplayText;
+    private bool _isTextTruncated;
+    private bool _isDetailTruncated;
+    private bool _isCustomDisplayTextTruncated;
     private bool _renderMarkdown;
 
     public ChatMessage(
@@ -29,9 +38,9 @@ public sealed class ChatMessage : INotifyPropertyChanged
         SupportsMarkdownText = supportsMarkdownText ?? (!isUser && !isEvent);
         SupportsMarkdownDetail = supportsMarkdownDetail;
         _title = title;
-        _detail = detail;
-        _text = text;
-        _displayText = text;
+        _detail = ClampForDisplay(detail, MaxMessageDetailLength, out _isDetailTruncated);
+        _text = ClampForDisplay(text, MaxMessageTextLength, out _isTextTruncated) ?? string.Empty;
+        _displayText = BuildDisplayText(_text, _isTextTruncated);
         _renderMarkdown = SupportsMarkdownText || SupportsMarkdownDetail;
         PromptSkillNames.CollectionChanged += HandlePromptSkillNamesChanged;
     }
@@ -63,9 +72,11 @@ public sealed class ChatMessage : INotifyPropertyChanged
         get => _detail;
         set
         {
-            _detail = value;
+            _detail = ClampForDisplay(value, MaxMessageDetailLength, out _isDetailTruncated);
             OnPropertyChanged();
+            OnPropertyChanged(nameof(DisplayDetail));
             OnPropertyChanged(nameof(HasDetail));
+            OnPropertyChanged(nameof(IsDetailTruncated));
             OnPropertyChanged(nameof(CanToggleMarkdownView));
             OnPropertyChanged(nameof(HasHeader));
             OnPropertyChanged(nameof(ShowMarkdownDetail));
@@ -76,6 +87,12 @@ public sealed class ChatMessage : INotifyPropertyChanged
     public bool HasTitle => !string.IsNullOrWhiteSpace(Title);
 
     public bool HasDetail => !string.IsNullOrWhiteSpace(Detail);
+
+    public string? DisplayDetail => BuildDisplayDetail(_detail, _isDetailTruncated);
+
+    public bool IsTextTruncated => _isTextTruncated;
+
+    public bool IsDetailTruncated => _isDetailTruncated;
 
     public bool HasHeader => HasTitle || CanToggleMarkdownView;
 
@@ -135,15 +152,13 @@ public sealed class ChatMessage : INotifyPropertyChanged
         get => _text;
         set
         {
-            _text = value;
+            _text = ClampForDisplay(value, MaxMessageTextLength, out _isTextTruncated) ?? string.Empty;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(IsTextTruncated));
             OnPropertyChanged(nameof(CanToggleMarkdownView));
             OnPropertyChanged(nameof(HasHeader));
             OnPropertyChanged(nameof(ShowMarkdownText));
-            if (!_hasCustomDisplayText)
-            {
-                DisplayText = value;
-            }
+            RefreshDisplayText();
         }
     }
 
@@ -157,9 +172,11 @@ public sealed class ChatMessage : INotifyPropertyChanged
             PromptSkillNames.Add(skillName);
         }
 
-        var normalizedDisplayText = displayText ?? string.Empty;
-        _hasCustomDisplayText = PromptSkillNames.Count > 0 || !string.Equals(normalizedDisplayText, _text, System.StringComparison.Ordinal);
-        DisplayText = _hasCustomDisplayText ? normalizedDisplayText : _text;
+        _customDisplayText = ClampForDisplay(displayText, MaxMessageTextLength, out _isCustomDisplayTextTruncated) ?? string.Empty;
+        _hasCustomDisplayText = PromptSkillNames.Count > 0
+            || _isCustomDisplayTextTruncated
+            || !string.Equals(_customDisplayText, _text, System.StringComparison.Ordinal);
+        RefreshDisplayText();
     }
 
     private void HandlePromptSkillNamesChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -190,5 +207,60 @@ public sealed class ChatMessage : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private void RefreshDisplayText()
+    {
+        if (_hasCustomDisplayText)
+        {
+            DisplayText = BuildDisplayText(_customDisplayText, _isCustomDisplayTextTruncated || _isTextTruncated);
+            return;
+        }
+
+        DisplayText = BuildDisplayText(_text, _isTextTruncated);
+    }
+
+    private static string BuildDisplayText(string value, bool truncated)
+    {
+        return truncated ? value + TruncatedDisplayNotice : value;
+    }
+
+    private static string? BuildDisplayDetail(string? value, bool truncated)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        return truncated ? value + TruncatedDisplayNotice : value;
+    }
+
+    private static string? ClampForDisplay(string? value, int maxLength, out bool truncated)
+    {
+        truncated = false;
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (value.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        if (value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        truncated = true;
+        var markerBudget = OmittedMiddleMarker.Length;
+        var contentBudget = System.Math.Max(0, maxLength - markerBudget);
+        var headLength = contentBudget / 2;
+        var tailLength = contentBudget - headLength;
+
+        return value.Substring(0, headLength).TrimEnd()
+            + OmittedMiddleMarker
+            + value.Substring(value.Length - tailLength).TrimStart();
     }
 }

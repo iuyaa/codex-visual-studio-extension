@@ -12,4 +12,11 @@ internal static class CodexViewModelHost
         ThreadHelper.ThrowIfNotOnUIThread();
         return _instance ??= new CodexToolWindowViewModel();
     }
+
+    public static void Dispose()
+    {
+        var instance = _instance;
+        _instance = null;
+        instance?.Dispose();
+    }
 }

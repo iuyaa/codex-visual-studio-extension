@@ -15,6 +15,9 @@ public sealed class CodexExtensionSettings
     public string Profile { get; set; } = "";
     public string ApprovalPolicy { get; set; } = "";
     public string SandboxMode { get; set; } = "";
+    public string FollowUpQueueMode { get; set; } = "queue";
+    public string ComposerEnterBehavior { get; set; } = "enter";
+    public string ReviewDelivery { get; set; } = "inline";
     public string AdditionalArguments { get; set; } = "";
     public string EnvironmentVariables { get; set; } = "";
     public string RawTomlOverrides { get; set; } = "";
@@ -30,10 +33,9 @@ public sealed class CodexExtensionSettings
     public List<string> CustomServiceTiers { get; set; } = new();
     public List<CodexManagedMcpServer> ManagedMcpServers { get; set; } = new();
     public List<string> PreferredMcpServers { get; set; } = new();
-    public bool StreamOutput { get; set; } = true;
-    public bool ReuseSession { get; set; } = false;
-    public bool AutoApprovePowerShell { get; set; } = false;
     public bool PlanModeEnabled { get; set; } = false;
     public bool IncludeIdeContext { get; set; } = true;
     public bool IncludeHiddenModels { get; set; } = false;
+    public bool OpenOnStartup { get; set; } = false;
+    public bool AutoCompactLongConversations { get; set; } = false;
 }

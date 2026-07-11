@@ -8,6 +8,12 @@
       <Group guid="guidCodexCommandSet" id="MyMenuGroup" priority="0x0600">
         <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_VIEW" />
       </Group>
+      <Group guid="guidCodexCommandSet" id="CodexEditorContextGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN" />
+      </Group>
+      <Group guid="guidCodexCommandSet" id="CodexItemContextGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_ITEMNODE" />
+      </Group>
     </Groups>
 
     <Buttons>
@@ -18,6 +24,69 @@
           <ButtonText>Codex</ButtonText>
           <CommandName>View.VisualCodexStudio</CommandName>
           <LocCanonicalName>View.VisualCodexStudio</LocCanonicalName>
+        </Strings>
+      </Button>
+      <Button guid="guidCodexCommandSet" id="OpenSidebarCommand" priority="0x0110" type="Button">
+        <Parent guid="guidCodexCommandSet" id="MyMenuGroup" />
+        <Icon guid="guidImages" id="bmpPic1" />
+        <Strings>
+          <ButtonText>Open Codex Sidebar</ButtonText>
+          <CommandName>Codex.OpenSidebar</CommandName>
+          <LocCanonicalName>Codex.OpenSidebar</LocCanonicalName>
+        </Strings>
+      </Button>
+      <Button guid="guidCodexCommandSet" id="NewCodexAgentCommand" priority="0x0120" type="Button">
+        <Parent guid="guidCodexCommandSet" id="MyMenuGroup" />
+        <Icon guid="guidImages" id="bmpPic1" />
+        <Strings>
+          <ButtonText>New Codex Agent</ButtonText>
+          <CommandName>Codex.NewAgent</CommandName>
+          <LocCanonicalName>Codex.NewAgent</LocCanonicalName>
+        </Strings>
+      </Button>
+      <Button guid="guidCodexCommandSet" id="OpenCodexSettingsCommand" priority="0x0130" type="Button">
+        <Parent guid="guidCodexCommandSet" id="MyMenuGroup" />
+        <Icon guid="guidImages" id="bmpPic1" />
+        <Strings>
+          <ButtonText>Codex Settings</ButtonText>
+          <CommandName>Codex.OpenSettings</CommandName>
+          <LocCanonicalName>Codex.OpenSettings</LocCanonicalName>
+        </Strings>
+      </Button>
+      <Button guid="guidCodexCommandSet" id="ImplementTodoCommand" priority="0x0100" type="Button">
+        <Parent guid="guidCodexCommandSet" id="CodexEditorContextGroup" />
+        <Icon guid="guidImages" id="bmpPic1" />
+        <Strings>
+          <ButtonText>Implement with Codex</ButtonText>
+          <CommandName>Codex.ImplementWithCodex</CommandName>
+          <LocCanonicalName>Codex.ImplementWithCodex</LocCanonicalName>
+        </Strings>
+      </Button>
+      <Button guid="guidCodexCommandSet" id="AddSelectionToThreadCommand" priority="0x0110" type="Button">
+        <Parent guid="guidCodexCommandSet" id="CodexEditorContextGroup" />
+        <Icon guid="guidImages" id="bmpPic1" />
+        <Strings>
+          <ButtonText>Add to Codex Thread</ButtonText>
+          <CommandName>Codex.AddToThread</CommandName>
+          <LocCanonicalName>Codex.AddToThread</LocCanonicalName>
+        </Strings>
+      </Button>
+      <Button guid="guidCodexCommandSet" id="ReviewSelectionCommand" priority="0x0120" type="Button">
+        <Parent guid="guidCodexCommandSet" id="CodexEditorContextGroup" />
+        <Icon guid="guidImages" id="bmpPic1" />
+        <Strings>
+          <ButtonText>Review with Codex</ButtonText>
+          <CommandName>Codex.ReviewSelection</CommandName>
+          <LocCanonicalName>Codex.ReviewSelection</LocCanonicalName>
+        </Strings>
+      </Button>
+      <Button guid="guidCodexCommandSet" id="AddFileToThreadCommand" priority="0x0100" type="Button">
+        <Parent guid="guidCodexCommandSet" id="CodexItemContextGroup" />
+        <Icon guid="guidImages" id="bmpPic1" />
+        <Strings>
+          <ButtonText>Add File to Codex Thread</ButtonText>
+          <CommandName>Codex.AddFileToThread</CommandName>
+          <LocCanonicalName>Codex.AddFileToThread</LocCanonicalName>
         </Strings>
       </Button>
     </Buttons>
@@ -35,7 +104,16 @@
     <GuidSymbol name="guidCodexPackage" value="{A0B554A1-1D5E-4EC3-8CA9-0A7994B64A61}" />
     <GuidSymbol name="guidCodexCommandSet" value="{B6A6996F-D0BE-4D45-9C77-CE4A3ED3D8D8}">
       <IDSymbol name="MyMenuGroup" value="0x1020" />
+      <IDSymbol name="CodexEditorContextGroup" value="0x1021" />
+      <IDSymbol name="CodexItemContextGroup" value="0x1022" />
       <IDSymbol name="ShowCodexToolWindowCommand" value="0x0100" />
+      <IDSymbol name="OpenSidebarCommand" value="0x0101" />
+      <IDSymbol name="NewCodexAgentCommand" value="0x0102" />
+      <IDSymbol name="AddSelectionToThreadCommand" value="0x0103" />
+      <IDSymbol name="AddFileToThreadCommand" value="0x0104" />
+      <IDSymbol name="ReviewSelectionCommand" value="0x0105" />
+      <IDSymbol name="ImplementTodoCommand" value="0x0106" />
+      <IDSymbol name="OpenCodexSettingsCommand" value="0x0107" />
     </GuidSymbol>
     <GuidSymbol name="guidImages" value="{7BC2A5B9-7BC4-44AD-BF73-4D8C4634D7A7}">
       <IDSymbol name="bmpPic1" value="1" />

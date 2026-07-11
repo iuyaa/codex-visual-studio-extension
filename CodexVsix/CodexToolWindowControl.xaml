@@ -43,6 +43,9 @@
         <Geometry x:Key="SpellCheckIcon">M120 32c-48.6 0-88 39.4-88 88l0 168c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-168c0-48.6-39.4-88-88-88l-16 0zm40 128l-64 0 0-40c0-13.3 10.7-24 24-24l16 0c13.3 0 24 10.7 24 24l0 40zM304 32c-17.7 0-32 14.3-32 32l0 224c0 17.7 14.3 32 32 32l72 0c48.6 0 88-39.4 88-88 0-23.6-9.3-45-24.4-60.8 10.3-14.4 16.4-32.1 16.4-51.2 0-48.6-39.4-88-88-88l-64 0zm64 112l-32 0 0-48 32 0c13.3 0 24 10.7 24 24s-10.7 24-24 24zM336 256l0-48 40 0c13.3 0 24 10.7 24 24s-10.7 24-24 24l-40 0zm233 84c11-13.8 8.8-33.9-5-45s-33.9-8.8-45 5l-105.7 132.1-38.7-38.7c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l64 64c6.4 6.4 15.3 9.8 24.4 9.3s17.5-4.9 23.2-12L569 340z</Geometry>
         <Geometry x:Key="PlusIcon">M224 32c0-17.7 14.3-32 32-32s32 14.3 32 32l0 192 192 0c17.7 0 32 14.3 32 32s-14.3 32-32 32l-192 0 0 192c0 17.7-14.3 32-32 32s-32-14.3-32-32l0-192L32 288c-17.7 0-32-14.3-32-32s14.3-32 32-32l192 0 0-192z</Geometry>
         <Geometry x:Key="PlugIcon">M509.4 98.6c7.6-7.6 20.3-5.7 24.1 4.3 6.8 17.7 10.5 37 10.5 57.1 0 88.4-71.6 160-160 160-17.5 0-34.4-2.8-50.2-8L146.9 498.9c-28.1 28.1-73.7 28.1-101.8 0s-28.1-73.7 0-101.8L232 210.2c-5.2-15.8-8-32.6-8-50.2 0-88.4 71.6-160 160-160 20.1 0 39.4 3.7 57.1 10.5 10 3.8 11.8 16.5 4.3 24.1l-88.7 88.7c-3 3-4.7 7.1-4.7 11.3l0 41.4c0 8.8 7.2 16 16 16l41.4 0c4.2 0 8.3-1.7 11.3-4.7l88.7-88.7z</Geometry>
+        <Geometry x:Key="CodexBlossomBarIcon">M330.34 313.62h-67.84c-7.65 0-13.85-6.2-13.85-13.85s6.2-13.85 13.85-13.85h67.84c7.65 0 13.85 6.2 13.85 13.85s-6.2 13.85-13.85 13.85Z</Geometry>
+        <Geometry x:Key="CodexBlossomPromptIcon">M169.65 313.38c-2.36 0-4.74-.6-6.93-1.87-6.62-3.83-8.88-12.31-5.05-18.93l23.78-41.08-23.91-43.21c-3.7-6.69-1.28-15.12 5.41-18.82 6.69-3.71 15.12-1.28 18.82 5.41l31.51 56.94-31.64 54.65c-2.57 4.43-7.22 6.91-12 6.91Z</Geometry>
+        <Geometry x:Key="CodexBlossomRingIcon">M144.61 144.5c1.42-41.82 35.79-75.27 77.95-75.25 27.89.02 52.35 14.68 66.11 36.71 10.93-5.82 23.41-9.12 36.65-9.11 43.05.02 77.94 34.94 77.91 78 0 13.24-3.32 25.72-9.16 36.64 22.02 13.79 36.66 38.26 36.64 66.15-.02 42.16-33.52 76.48-75.34 77.86-1.42 41.82-35.78 75.28-77.94 75.25-27.89-.02-52.35-14.68-66.11-36.72-10.93 5.82-23.4 9.13-36.65 9.12-43.05-.02-77.94-34.94-77.91-78 0-13.24 3.32-25.72 9.16-36.64-22.02-13.79-36.65-38.26-36.64-66.15.02-42.16 33.51-76.48 75.33-77.86ZM297.77 71.99c-19.24-19.26-45.83-31.17-75.2-31.19-49.23-.03-90.67 33.39-102.84 78.79-45.41 12.12-78.87 53.52-78.9 102.76-.02 29.37 11.87 55.97 31.1 75.23-2.35 8.79-3.62 18.03-3.63 27.56-.03 58.77 47.58 106.44 106.35 106.47 9.53 0 18.77-1.25 27.55-3.6 19.24 19.26 45.84 31.18 75.21 31.2 49.24.03 90.67-33.39 102.84-78.8 45.42-12.11 78.88-53.51 78.91-102.75.02-29.37-11.87-55.98-31.11-75.24 2.35-8.78 3.62-18.02 3.63-27.55.03-58.77-47.58-106.44-106.35-106.47-9.53 0-18.77 1.25-27.56 3.59Z</Geometry>
 
         <SolidColorBrush x:Key="WindowBrush" Color="{DynamicResource {x:Static themes:EnvironmentColors.ToolWindowBackgroundColorKey}}" />
         <SolidColorBrush x:Key="PanelBrushSoft" Color="{DynamicResource {x:Static themes:EnvironmentColors.ToolWindowBackgroundColorKey}}" />
@@ -896,7 +899,8 @@
         </DataTemplate>
     </UserControl.Resources>
 
-    <Grid Background="{StaticResource WindowBrush}">
+    <Grid x:Name="RootLayoutGrid"
+          Background="{StaticResource WindowBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
@@ -1044,7 +1048,7 @@
 
                                 <TextBlock Margin="0,0,0,4"
                                            Foreground="{StaticResource TextMutedBrush}"
-                                           Text="Extension settings" />
+                                           Text="{Binding Localization.ExtensionSettingsLabel}" />
                                 <DockPanel Margin="0,0,0,10"
                                            LastChildFill="False">
                                     <TextBlock VerticalAlignment="Center"
@@ -1054,9 +1058,61 @@
                                     <Button DockPanel.Dock="Right"
                                             Margin="8,0,0,0"
                                             Style="{StaticResource ChipButtonStyle}"
-                                            Content="Open settings.json"
+                                            Content="{Binding Localization.OpenExtensionSettingsButton}"
                                             Command="{Binding OpenExtensionSettingsCommand}" />
                                 </DockPanel>
+
+                                <TextBlock Margin="0,0,0,4"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Text="{Binding Localization.ComposerEnterBehaviorLabel}" />
+                                <ComboBox Margin="0,0,0,10"
+                                          Style="{StaticResource PanelComboBoxStyle}"
+                                          ItemsSource="{Binding ComposerEnterBehaviorOptions}"
+                                          DisplayMemberPath="Label"
+                                          SelectedValuePath="Value"
+                                          SelectedValue="{Binding SelectedComposerEnterBehavior, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <TextBlock Margin="0,0,0,4"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Text="{Binding Localization.FollowUpModeLabel}" />
+                                <ComboBox Margin="0,0,0,10"
+                                          Style="{StaticResource PanelComboBoxStyle}"
+                                          ItemsSource="{Binding FollowUpQueueModeOptions}"
+                                          DisplayMemberPath="Label"
+                                          SelectedValuePath="Value"
+                                          SelectedValue="{Binding SelectedFollowUpQueueMode, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <TextBlock Margin="0,0,0,4"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Text="{Binding Localization.ReviewDeliveryLabel}" />
+                                <ComboBox Margin="0,0,0,10"
+                                          Style="{StaticResource PanelComboBoxStyle}"
+                                          ItemsSource="{Binding ReviewDeliveryOptions}"
+                                          DisplayMemberPath="Label"
+                                          SelectedValuePath="Value"
+                                          SelectedValue="{Binding SelectedReviewDelivery, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <CheckBox Margin="0,0,0,12"
+                                          Foreground="{StaticResource TextPrimaryBrush}"
+                                          Content="{Binding Localization.OpenOnStartupLabel}"
+                                          IsChecked="{Binding OpenOnStartupEnabled, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <CheckBox Margin="0,0,0,12"
+                                          Foreground="{StaticResource TextPrimaryBrush}"
+                                          Content="{Binding Localization.AutoCompactLongConversationsLabel}"
+                                          IsChecked="{Binding AutoCompactLongConversationsEnabled, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <Button Margin="0,0,0,12"
+                                        HorizontalAlignment="Left"
+                                        Style="{StaticResource ChipButtonStyle}"
+                                        Content="{Binding Localization.CompactCurrentConversationButton}"
+                                        Command="{Binding CompactConversationCommand}" />
+
+                                <Button Margin="0,0,0,12"
+                                        HorizontalAlignment="Left"
+                                        Style="{StaticResource ChipButtonStyle}"
+                                        Content="{Binding Localization.ClearPromptHistoryButton}"
+                                        Command="{Binding ClearPromptHistoryCommand}" />
 
                                 <TextBlock Margin="0,0,0,4"
                                            Foreground="{StaticResource TextMutedBrush}"
@@ -1076,7 +1132,7 @@
 
                                 <TextBlock Margin="0,0,0,4"
                                            Foreground="{StaticResource TextMutedBrush}"
-                                           Text="Modelo" />
+                                           Text="{Binding Localization.ModelLabel}" />
                                 <DockPanel Margin="0,0,0,8"
                                            LastChildFill="False">
                                     <ComboBox MinWidth="180"
@@ -1089,7 +1145,7 @@
                                     <Button DockPanel.Dock="Right"
                                             Margin="8,0,0,0"
                                             Style="{StaticResource ChipButtonStyle}"
-                                            Content="Atualizar modelos"
+                                            Content="{Binding Localization.RefreshModelsButton}"
                                             Command="{Binding RefreshModelsCommand}" />
                                 </DockPanel>
                                 <TextBlock Margin="0,0,0,8"
@@ -1099,7 +1155,7 @@
                                            TextWrapping="Wrap" />
                                 <TextBlock Margin="0,0,0,4"
                                            Foreground="{StaticResource TextMutedBrush}"
-                                           Text="Modelo personalizado" />
+                                           Text="{Binding Localization.CustomModelLabel}" />
                                 <DockPanel Margin="0,0,0,10"
                                            LastChildFill="False">
                                     <TextBox MinWidth="180"
@@ -1108,7 +1164,7 @@
                                     <Button DockPanel.Dock="Right"
                                             Margin="8,0,0,0"
                                             Style="{StaticResource ChipButtonStyle}"
-                                            Content="Adicionar modelo"
+                                            Content="{Binding Localization.AddModelButton}"
                                             Command="{Binding AddCustomModelCommand}" />
                                 </DockPanel>
 
@@ -1455,7 +1511,7 @@
                                          IsReadOnly="True"
                                          TextWrapping="Wrap"
                                          VerticalScrollBarVisibility="Auto"
-                                         Text="{Binding Output}" />
+                                         Text="{Binding Output, Mode=OneWay}" />
 
                                 <TextBlock Margin="0,12,0,4"
                                            Foreground="{StaticResource TextMutedBrush}"
@@ -1509,50 +1565,94 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <StackPanel x:Name="TopToolbarHost"
-                        Grid.Row="0"
-                        Margin="0,0,0,10"
-                        Orientation="Horizontal">
-                <Button x:Name="HistoryToolbarButton"
-                        Width="32"
-                        Height="28"
-                        Margin="0,0,8,0"
-                        Style="{StaticResource TopIconButtonStyle}"
-                        ToolTip="{Binding Localization.HistoryTooltip}"
-                        Command="{Binding ToggleHistoryPanelCommand}">
-                    <Viewbox Width="14" Height="14">
-                        <Path Data="{StaticResource HistoryIcon}"
-                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                              Stretch="Uniform" />
-                    </Viewbox>
-                </Button>
+            <Grid x:Name="TopToolbarHost"
+                  Grid.Row="0"
+                  Margin="0,0,0,10"
+                  MinHeight="34">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
 
-                <Button x:Name="SettingsToolbarButton"
-                        Width="32"
-                        Height="28"
-                        Margin="0,0,8,0"
-                        Style="{StaticResource TopIconButtonStyle}"
-                        ToolTip="{Binding Localization.SettingsTooltip}"
-                        Command="{Binding ToggleSettingsPanelCommand}">
-                    <Viewbox Width="14" Height="14">
-                        <Path Data="{StaticResource SettingsIcon}"
-                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                              Stretch="Uniform" />
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <Viewbox Width="22"
+                             Height="22"
+                             Margin="0,0,10,0">
+                        <Canvas Width="500" Height="500">
+                            <Path Data="{StaticResource CodexBlossomRingIcon}"
+                                  Fill="{StaticResource TextPrimaryBrush}" />
+                            <Path Data="{StaticResource CodexBlossomPromptIcon}"
+                                  Fill="{StaticResource TextPrimaryBrush}" />
+                            <Path Data="{StaticResource CodexBlossomBarIcon}"
+                                  Fill="{StaticResource TextPrimaryBrush}" />
+                        </Canvas>
                     </Viewbox>
-                </Button>
+                    <StackPanel>
+                        <TextBlock Foreground="{StaticResource TextPrimaryBrush}"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Text="Codex" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="10"
+                                       Text="{Binding CollaborationModeLabel}" />
+                            <TextBlock Margin="6,0,6,0"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="10"
+                                       Text="/" />
+                            <TextBlock Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="10"
+                                       Text="{Binding ProfileLabel}" />
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
 
-                <Button Width="32"
-                        Height="28"
-                        Style="{StaticResource TopIconButtonStyle}"
-                        ToolTip="{Binding Localization.NewTopicButton}"
-                        Command="{Binding NewThreadCommand}">
-                    <Viewbox Width="14" Height="14">
-                        <Path Data="{StaticResource EditIcon}"
-                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                              Stretch="Uniform" />
-                    </Viewbox>
-                </Button>
-            </StackPanel>
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center">
+                    <Button Width="32"
+                            Height="28"
+                            Margin="0,0,6,0"
+                            Style="{StaticResource TopIconButtonStyle}"
+                            ToolTip="{Binding Localization.NewTopicButton}"
+                            Command="{Binding NewThreadCommand}">
+                        <Viewbox Width="14" Height="14">
+                            <Path Data="{StaticResource EditIcon}"
+                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  Stretch="Uniform" />
+                        </Viewbox>
+                    </Button>
+
+                    <Button x:Name="HistoryToolbarButton"
+                            Width="32"
+                            Height="28"
+                            Margin="0,0,6,0"
+                            Style="{StaticResource TopIconButtonStyle}"
+                            ToolTip="{Binding Localization.HistoryTooltip}"
+                            Command="{Binding ToggleHistoryPanelCommand}">
+                        <Viewbox Width="14" Height="14">
+                            <Path Data="{StaticResource HistoryIcon}"
+                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  Stretch="Uniform" />
+                        </Viewbox>
+                    </Button>
+
+                    <Button x:Name="SettingsToolbarButton"
+                            Width="32"
+                            Height="28"
+                            Style="{StaticResource TopIconButtonStyle}"
+                            ToolTip="{Binding Localization.SettingsTooltip}"
+                            Command="{Binding ToggleSettingsPanelCommand}">
+                        <Viewbox Width="14" Height="14">
+                            <Path Data="{StaticResource SettingsIcon}"
+                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  Stretch="Uniform" />
+                        </Viewbox>
+                    </Button>
+                </StackPanel>
+            </Grid>
 
             <Popup PlacementTarget="{Binding ElementName=HistoryToolbarButton}"
                    Placement="Bottom"
@@ -2211,7 +2311,7 @@
                                                          Foreground="{StaticResource TextMutedBrush}"
                                                          FontSize="10"
                                                          FontWeight="SemiBold"
-                                                         Text="{Binding Title}"
+                                                         Text="{Binding Title, Mode=OneWay}"
                                                          Loaded="OnChatTextBoxLoaded"
                                                          Unloaded="OnChatTextBoxUnloaded"
                                                          PreviewMouseLeftButtonDown="OnChatTextBoxPreviewMouseLeftButtonDown"
@@ -2326,7 +2426,7 @@
                                                                    PreviewMouseLeftButtonDown="OnChatTextBoxPreviewMouseLeftButtonDown"
                                                                    LinkCommand="{Binding DataContext.OpenReferencedPathCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                    WorkspaceRoot="{Binding DataContext.Settings.WorkingDirectory, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                                   MarkdownText="{Binding Text}"
+                                                                   MarkdownText="{Binding DisplayText, Mode=OneWay}"
                                                                    Visibility="Collapsed" />
                                             <Border x:Name="EventDetailHost"
                                                     Margin="0,10,0,0"
@@ -2347,7 +2447,7 @@
                                                              Loaded="OnChatTextBoxLoaded"
                                                              Unloaded="OnChatTextBoxUnloaded"
                                                              PreviewMouseLeftButtonDown="OnChatTextBoxPreviewMouseLeftButtonDown"
-                                                             Text="{Binding Detail}" />
+                                                             Text="{Binding DisplayDetail, Mode=OneWay}" />
                                                     <ui:ChatMarkdownViewer x:Name="EventDetailMarkdown"
                                                                            Tag="ChatSelectable"
                                                                            Margin="0"
@@ -2361,7 +2461,7 @@
                                                                            PreviewMouseLeftButtonDown="OnChatTextBoxPreviewMouseLeftButtonDown"
                                                                            LinkCommand="{Binding DataContext.OpenReferencedPathCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                            WorkspaceRoot="{Binding DataContext.Settings.WorkingDirectory, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                                           MarkdownText="{Binding Detail}"
+                                                                           MarkdownText="{Binding DisplayDetail, Mode=OneWay}"
                                                                            Visibility="Collapsed" />
                                                 </Grid>
                                             </Border>
@@ -2534,7 +2634,7 @@
                         BorderBrush="{StaticResource PanelBorderBrush}"
                         BorderThickness="1"
                         CornerRadius="16"
-                        Visibility="Collapsed">
+                        Visibility="{Binding IsSettingsDetailPanelVisible, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -2670,7 +2770,7 @@
                                         </DockPanel>
                                         <TextBlock Margin="0,12,0,4"
                                                    Foreground="{StaticResource TextMutedBrush}"
-                                                   Text="Extension settings" />
+                                                   Text="{Binding Localization.ExtensionSettingsLabel}" />
                                         <DockPanel LastChildFill="False">
                                             <TextBlock VerticalAlignment="Center"
                                                        Foreground="{StaticResource TextPrimaryBrush}"
@@ -2679,12 +2779,54 @@
                                             <Button DockPanel.Dock="Right"
                                                     Margin="10,0,0,0"
                                                     Style="{StaticResource ChipButtonStyle}"
-                                                    Content="Open settings.json"
+                                                    Content="{Binding Localization.OpenExtensionSettingsButton}"
                                                     Command="{Binding OpenExtensionSettingsCommand}" />
                                         </DockPanel>
                                         <TextBlock Margin="0,12,0,4"
                                                    Foreground="{StaticResource TextMutedBrush}"
-                                                   Text="Modelo" />
+                                                   Text="{Binding Localization.ComposerEnterBehaviorLabel}" />
+                                        <ComboBox Style="{StaticResource PanelComboBoxStyle}"
+                                                  ItemsSource="{Binding ComposerEnterBehaviorOptions}"
+                                                  DisplayMemberPath="Label"
+                                                  SelectedValuePath="Value"
+                                                  SelectedValue="{Binding SelectedComposerEnterBehavior, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Margin="0,12,0,4"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   Text="{Binding Localization.FollowUpModeLabel}" />
+                                        <ComboBox Style="{StaticResource PanelComboBoxStyle}"
+                                                  ItemsSource="{Binding FollowUpQueueModeOptions}"
+                                                  DisplayMemberPath="Label"
+                                                  SelectedValuePath="Value"
+                                                  SelectedValue="{Binding SelectedFollowUpQueueMode, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Margin="0,12,0,4"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   Text="{Binding Localization.ReviewDeliveryLabel}" />
+                                        <ComboBox Style="{StaticResource PanelComboBoxStyle}"
+                                                  ItemsSource="{Binding ReviewDeliveryOptions}"
+                                                  DisplayMemberPath="Label"
+                                                  SelectedValuePath="Value"
+                                                  SelectedValue="{Binding SelectedReviewDelivery, UpdateSourceTrigger=PropertyChanged}" />
+                                        <CheckBox Margin="0,14,0,0"
+                                                  Foreground="{StaticResource TextPrimaryBrush}"
+                                                  Content="{Binding Localization.OpenOnStartupLabel}"
+                                                  IsChecked="{Binding OpenOnStartupEnabled, UpdateSourceTrigger=PropertyChanged}" />
+                                        <CheckBox Margin="0,10,0,0"
+                                                  Foreground="{StaticResource TextPrimaryBrush}"
+                                                  Content="{Binding Localization.AutoCompactLongConversationsLabel}"
+                                                  IsChecked="{Binding AutoCompactLongConversationsEnabled, UpdateSourceTrigger=PropertyChanged}" />
+                                        <Button Margin="0,14,0,0"
+                                                HorizontalAlignment="Left"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Content="{Binding Localization.CompactCurrentConversationButton}"
+                                                Command="{Binding CompactConversationCommand}" />
+                                        <Button Margin="0,14,0,0"
+                                                HorizontalAlignment="Left"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Content="{Binding Localization.ClearPromptHistoryButton}"
+                                                Command="{Binding ClearPromptHistoryCommand}" />
+                                        <TextBlock Margin="0,12,0,4"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   Text="{Binding Localization.ModelLabel}" />
                                         <DockPanel LastChildFill="False">
                                             <ComboBox MinWidth="180"
                                                       Style="{StaticResource PanelComboBoxStyle}"
@@ -2696,7 +2838,7 @@
                                             <Button DockPanel.Dock="Right"
                                                     Margin="10,0,0,0"
                                                     Style="{StaticResource ChipButtonStyle}"
-                                                    Content="Atualizar modelos"
+                                                    Content="{Binding Localization.RefreshModelsButton}"
                                                     Command="{Binding RefreshModelsCommand}" />
                                         </DockPanel>
                                         <TextBlock Margin="0,4,0,0"
@@ -2706,7 +2848,7 @@
                                                    TextWrapping="Wrap" />
                                         <TextBlock Margin="0,12,0,4"
                                                    Foreground="{StaticResource TextMutedBrush}"
-                                                   Text="Modelo personalizado" />
+                                                   Text="{Binding Localization.CustomModelLabel}" />
                                         <DockPanel LastChildFill="False">
                                             <TextBox MinWidth="180"
                                                      Style="{StaticResource PanelTextBoxStyle}"
@@ -2714,7 +2856,7 @@
                                             <Button DockPanel.Dock="Right"
                                                     Margin="10,0,0,0"
                                                     Style="{StaticResource ChipButtonStyle}"
-                                                    Content="Adicionar modelo"
+                                                    Content="{Binding Localization.AddModelButton}"
                                                     Command="{Binding AddCustomModelCommand}" />
                                         </DockPanel>
                                         <TextBlock Margin="0,12,0,4"
@@ -3261,7 +3403,7 @@
                                                       VerticalScrollBarVisibility="Auto">
                                             <Grid>
                                             <Border Visibility="Collapsed"><Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding IsAccountSectionSelected}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Border.Style><StackPanel><TextBlock Foreground="{StaticResource TextPrimaryBrush}" FontSize="22" FontWeight="SemiBold" Text="{Binding Localization.AccountTitle}" /><TextBlock Margin="0,6,0,0" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.AccountSubtitle}" TextWrapping="Wrap" /><Border Margin="0,18,0,0" Padding="14" Background="{StaticResource ChipBrush}" BorderBrush="{StaticResource EventCardBorderBrush}" BorderThickness="1" CornerRadius="14"><StackPanel><TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding Localization.SignedInAsLabel}" /><TextBlock Margin="0,4,0,0" Foreground="{StaticResource TextPrimaryBrush}" FontSize="16" FontWeight="SemiBold" Text="{Binding CurrentAccountLabel}" TextWrapping="Wrap" /></StackPanel></Border><WrapPanel Margin="0,16,0,0"><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.SetupRefreshButton}" Command="{Binding RefreshCodexStatusCommand}" /><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.SetupLoginButton}" Command="{Binding RunCodexLoginCommand}" /><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.LogOutAndLogInButton}" Command="{Binding LogOutAndLoginCommand}" /></WrapPanel></StackPanel></Border>
-                                            <Border Visibility="Collapsed"><Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding IsCodexSectionSelected}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Border.Style><StackPanel><TextBlock Foreground="{StaticResource TextPrimaryBrush}" FontSize="22" FontWeight="SemiBold" Text="{Binding Localization.CodexSettingsNav}" /><TextBlock Margin="0,18,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.ExecutableLabel}" /><TextBox Style="{StaticResource PanelTextBoxStyle}" Text="{Binding Settings.CodexExecutablePath, UpdateSourceTrigger=PropertyChanged}" /><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.CodexConfigLabel}" /><DockPanel LastChildFill="False"><TextBlock VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" Text="{Binding CodexConfigPath}" TextTrimming="CharacterEllipsis" /><Button DockPanel.Dock="Right" Margin="10,0,0,0" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.OpenConfigButton}" Command="{Binding OpenCodexConfigCommand}" /></DockPanel><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="Modelo" /><DockPanel LastChildFill="False"><ComboBox MinWidth="180" Style="{StaticResource PanelComboBoxStyle}" ItemsSource="{Binding ModelOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding SelectedModel, UpdateSourceTrigger=PropertyChanged}" /><Button DockPanel.Dock="Right" Margin="10,0,0,0" Style="{StaticResource ChipButtonStyle}" Content="Atualizar modelos" Command="{Binding RefreshModelsCommand}" /></DockPanel><TextBlock Margin="0,4,0,0" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding ModelRefreshStatus}" TextWrapping="Wrap" /><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="Modelo personalizado" /><DockPanel LastChildFill="False"><TextBox MinWidth="180" Style="{StaticResource PanelTextBoxStyle}" Text="{Binding CustomModelInput, UpdateSourceTrigger=PropertyChanged}" /><Button DockPanel.Dock="Right" Margin="10,0,0,0" Style="{StaticResource ChipButtonStyle}" Content="Adicionar modelo" Command="{Binding AddCustomModelCommand}" /></DockPanel><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.VerbosityLabel}" /><ComboBox Style="{StaticResource PanelComboBoxStyle}" ItemsSource="{Binding VerbosityOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding SelectedVerbosity, UpdateSourceTrigger=PropertyChanged}" /><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.ApprovalPolicyLabel}" /><ComboBox Style="{StaticResource PanelComboBoxStyle}" ItemsSource="{Binding ApprovalPolicyOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding SelectedApprovalPolicy, UpdateSourceTrigger=PropertyChanged}" /><WrapPanel Margin="0,16,0,0"><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.ManagedMcpApplyButton}" Command="{Binding SaveSettingsCommand}" /><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.SetupRefreshButton}" Command="{Binding RefreshCodexStatusCommand}" /></WrapPanel></StackPanel></Border>
+                                            <Border Visibility="Collapsed"><Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding IsCodexSectionSelected}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Border.Style><StackPanel><TextBlock Foreground="{StaticResource TextPrimaryBrush}" FontSize="22" FontWeight="SemiBold" Text="{Binding Localization.CodexSettingsNav}" /><TextBlock Margin="0,18,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.ExecutableLabel}" /><TextBox Style="{StaticResource PanelTextBoxStyle}" Text="{Binding Settings.CodexExecutablePath, UpdateSourceTrigger=PropertyChanged}" /><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.CodexConfigLabel}" /><DockPanel LastChildFill="False"><TextBlock VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" Text="{Binding CodexConfigPath}" TextTrimming="CharacterEllipsis" /><Button DockPanel.Dock="Right" Margin="10,0,0,0" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.OpenConfigButton}" Command="{Binding OpenCodexConfigCommand}" /></DockPanel><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.ModelLabel}" /><DockPanel LastChildFill="False"><ComboBox MinWidth="180" Style="{StaticResource PanelComboBoxStyle}" ItemsSource="{Binding ModelOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding SelectedModel, UpdateSourceTrigger=PropertyChanged}" /><Button DockPanel.Dock="Right" Margin="10,0,0,0" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.RefreshModelsButton}" Command="{Binding RefreshModelsCommand}" /></DockPanel><TextBlock Margin="0,4,0,0" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding ModelRefreshStatus}" TextWrapping="Wrap" /><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.CustomModelLabel}" /><DockPanel LastChildFill="False"><TextBox MinWidth="180" Style="{StaticResource PanelTextBoxStyle}" Text="{Binding CustomModelInput, UpdateSourceTrigger=PropertyChanged}" /><Button DockPanel.Dock="Right" Margin="10,0,0,0" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.AddModelButton}" Command="{Binding AddCustomModelCommand}" /></DockPanel><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.VerbosityLabel}" /><ComboBox Style="{StaticResource PanelComboBoxStyle}" ItemsSource="{Binding VerbosityOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding SelectedVerbosity, UpdateSourceTrigger=PropertyChanged}" /><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.ApprovalPolicyLabel}" /><ComboBox Style="{StaticResource PanelComboBoxStyle}" ItemsSource="{Binding ApprovalPolicyOptions}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding SelectedApprovalPolicy, UpdateSourceTrigger=PropertyChanged}" /><Button Margin="0,16,0,0" HorizontalAlignment="Left" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.ClearPromptHistoryButton}" Command="{Binding ClearPromptHistoryCommand}" /><WrapPanel Margin="0,16,0,0"><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.ManagedMcpApplyButton}" Command="{Binding SaveSettingsCommand}" /><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.SetupRefreshButton}" Command="{Binding RefreshCodexStatusCommand}" /></WrapPanel></StackPanel></Border>
                                             <Border Visibility="Collapsed"><Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding IsIdeSectionSelected}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Border.Style><StackPanel><TextBlock Foreground="{StaticResource TextPrimaryBrush}" FontSize="22" FontWeight="SemiBold" Text="{Binding Localization.IdeSettingsNav}" /><TextBlock Margin="0,18,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.WorkingDirectoryLabel}" /><TextBox Style="{StaticResource PanelTextBoxStyle}" Text="{Binding Settings.WorkingDirectory, UpdateSourceTrigger=PropertyChanged}" /><WrapPanel Margin="0,12,0,0"><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.LocalProjectLabel}" Command="{Binding UseSolutionDirectoryCommand}" /><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.ManagedMcpApplyButton}" Command="{Binding SaveSettingsCommand}" /></WrapPanel><CheckBox Margin="0,14,0,0" Foreground="{StaticResource TextPrimaryBrush}" IsChecked="{Binding IncludeIdeContextEnabled, UpdateSourceTrigger=PropertyChanged}" Content="{Binding Localization.IncludeIdeContextLabel}" /><CheckBox Margin="0,10,0,0" Foreground="{StaticResource TextPrimaryBrush}" IsChecked="{Binding PlanModeEnabled, UpdateSourceTrigger=PropertyChanged}" Content="{Binding Localization.PlanModeLabel}" /></StackPanel></Border>
                                             <Border Visibility="Collapsed"><Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding IsMcpSectionSelected}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Border.Style><StackPanel><DockPanel LastChildFill="False"><TextBlock Foreground="{StaticResource TextPrimaryBrush}" FontSize="22" FontWeight="SemiBold" Text="{Binding Localization.ManagedMcpTitle}" /><WrapPanel DockPanel.Dock="Right"><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.ManagedMcpAddStdioButton}" Command="{Binding AddManagedMcpCommand}" CommandParameter="stdio" /><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.ManagedMcpAddUrlButton}" Command="{Binding AddManagedMcpCommand}" CommandParameter="url" /><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.ManagedMcpApplyButton}" Command="{Binding SaveSettingsCommand}" /></WrapPanel></DockPanel><TextBlock Margin="0,6,0,0" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.ManagedMcpDescription}" TextWrapping="Wrap" /><TextBlock Margin="0,16,0,6" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.McpServersTitle}" /><ItemsControl ItemsSource="{Binding McpServers}"><ItemsControl.ItemTemplate><DataTemplate><Border Margin="0,0,0,8" Padding="10" Background="{StaticResource ChipBrush}" BorderBrush="{StaticResource EventCardBorderBrush}" BorderThickness="1" CornerRadius="12"><StackPanel><TextBlock Foreground="{StaticResource TextPrimaryBrush}" FontWeight="SemiBold" Text="{Binding Name}" /><TextBlock Margin="0,3,0,0" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding AuthStatus}" /><TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding ToolsLabel}" TextWrapping="Wrap" /></StackPanel></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl><TextBlock Margin="0,16,0,6" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.ManagedMcpHint}" /><ItemsControl ItemsSource="{Binding ManagedMcpServers}"><ItemsControl.ItemTemplate><DataTemplate><Border Margin="0,0,0,10" Padding="12" Background="{StaticResource ChipBrush}" BorderBrush="{StaticResource EventCardBorderBrush}" BorderThickness="1" CornerRadius="14"><StackPanel><DockPanel LastChildFill="False"><CheckBox VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" IsChecked="{Binding Enabled, UpdateSourceTrigger=PropertyChanged}" Content="{Binding DataContext.Localization.EnabledLabel, RelativeSource={RelativeSource AncestorType=UserControl}}" /><Button DockPanel.Dock="Right" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}" Content="{Binding DataContext.Localization.ManagedMcpRemoveButton, RelativeSource={RelativeSource AncestorType=UserControl}}" Command="{Binding DataContext.RemoveManagedMcpCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" /></DockPanel><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding DataContext.Localization.ManagedMcpNameLabel, RelativeSource={RelativeSource AncestorType=UserControl}}" /><TextBox Style="{StaticResource PanelTextBoxStyle}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" /><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding DataContext.Localization.ManagedMcpTransportLabel, RelativeSource={RelativeSource AncestorType=UserControl}}" /><ComboBox Style="{StaticResource PanelComboBoxStyle}" ItemsSource="{Binding DataContext.McpTransportOptions, RelativeSource={RelativeSource AncestorType=UserControl}}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding TransportType, UpdateSourceTrigger=PropertyChanged}" /><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding DataContext.Localization.ManagedMcpCommandLabel, RelativeSource={RelativeSource AncestorType=UserControl}}" /><TextBox Style="{StaticResource PanelTextBoxStyle}" Text="{Binding Command, UpdateSourceTrigger=PropertyChanged}" /><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding DataContext.Localization.ManagedMcpArgsLabel, RelativeSource={RelativeSource AncestorType=UserControl}}" /><TextBox Style="{StaticResource PanelTextBoxStyle}" MinHeight="56" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Text="{Binding ArgumentsText, UpdateSourceTrigger=PropertyChanged}" /><TextBlock Margin="0,12,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding DataContext.Localization.ManagedMcpUrlLabel, RelativeSource={RelativeSource AncestorType=UserControl}}" /><TextBox Style="{StaticResource PanelTextBoxStyle}" Text="{Binding Url, UpdateSourceTrigger=PropertyChanged}" /></StackPanel></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel></Border>
                                             <Border Visibility="Collapsed"><Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding IsSkillsSectionSelected}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Border.Style><StackPanel><DockPanel LastChildFill="False"><StackPanel><TextBlock Foreground="{StaticResource TextPrimaryBrush}" FontSize="22" FontWeight="SemiBold" Text="{Binding Localization.SkillsTitle}" /><TextBlock Margin="0,6,0,0" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.SkillsLearnMore}" /></StackPanel><WrapPanel DockPanel.Dock="Right"><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.RefreshStatusButton}" Command="{Binding RefreshIntegrationsCommand}" /><Button Margin="0,0,8,8" Style="{StaticResource ChipButtonStyle}" Content="{Binding Localization.OpenSkillsFolderButton}" Command="{Binding OpenCodexSkillsFolderCommand}" /></WrapPanel></DockPanel><TextBlock Margin="0,16,0,4" Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.SearchSkillsPlaceholder}" /><TextBox Style="{StaticResource PanelTextBoxStyle}" Text="{Binding SkillSearchText, UpdateSourceTrigger=PropertyChanged}" /><Grid Margin="0,16,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><StackPanel Margin="0,0,10,0"><TextBlock Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.InstalledSkillsTitle}" /><TextBlock Margin="0,4,0,0" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding Localization.NoSkillsDetected}"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding HasSkills}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock><ItemsControl Margin="0,8,0,0" ItemsSource="{Binding VisibleSkills}"><ItemsControl.ItemTemplate><DataTemplate><Border Margin="0,0,0,8" Padding="10" Background="{StaticResource ChipBrush}" BorderBrush="{StaticResource EventCardBorderBrush}" BorderThickness="1" CornerRadius="12"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Foreground="{StaticResource TextPrimaryBrush}" FontWeight="SemiBold" Text="{Binding DisplayTitle}" /><TextBlock Margin="0,3,0,0" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding Summary}" TextWrapping="Wrap" /></StackPanel><StackPanel Grid.Column="1" Margin="12,0,0,0" Orientation="Horizontal" VerticalAlignment="Top"><CheckBox Margin="0,0,10,0" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" Content="{Binding DataContext.Localization.EnabledLabel, RelativeSource={RelativeSource AncestorType=UserControl}}" IsChecked="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}" Command="{Binding DataContext.ToggleSkillEnabledCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" /><Button Style="{StaticResource ChipButtonStyle}" Content="{Binding DataContext.Localization.SkillOpenButton, RelativeSource={RelativeSource AncestorType=UserControl}}" Command="{Binding DataContext.OpenPathCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding Path}" /></StackPanel></Grid></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel><StackPanel Grid.Column="1" Margin="10,0,0,0"><TextBlock Foreground="{StaticResource TextMutedBrush}" Text="{Binding Localization.RecommendedSkillsTitle}" /><TextBlock Margin="0,4,0,0" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding Localization.NoRecommendedSkills}"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding HasRemoteSkills}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock><ItemsControl Margin="0,8,0,0" ItemsSource="{Binding VisibleRemoteSkills}"><ItemsControl.ItemTemplate><DataTemplate><Border Margin="0,0,0,8" Padding="10" Background="{StaticResource ChipBrush}" BorderBrush="{StaticResource EventCardBorderBrush}" BorderThickness="1" CornerRadius="12"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Foreground="{StaticResource TextPrimaryBrush}" FontWeight="SemiBold" Text="{Binding Name}" /><TextBlock Margin="0,3,0,0" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding Description}" TextWrapping="Wrap" /></StackPanel><Button Grid.Column="1" Margin="12,0,0,0" Style="{StaticResource ChipButtonStyle}" Content="{Binding DataContext.Localization.InstallSkillButton, RelativeSource={RelativeSource AncestorType=UserControl}}" Command="{Binding DataContext.InstallRemoteSkillCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" /></Grid></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel></Grid>
@@ -4203,7 +4345,7 @@
                                      Style="{StaticResource PanelTextBoxStyle}"
                                      FontFamily="Consolas"
                                      IsReadOnly="True"
-                                     Text="{Binding Command}"
+                                     Text="{Binding Command, Mode=OneWay}"
                                      TextWrapping="Wrap" />
                         </StackPanel>
 

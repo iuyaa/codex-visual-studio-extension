@@ -27,6 +27,12 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 {
     private const double DefaultContextTokenBudget = 128000d;
     private const int AssistantOutputFlushDelayMilliseconds = 75;
+    private const int MaxPromptHistoryEntries = 50;
+    private const int MaxPromptHistoryEntryLength = 12000;
+    private const int MaxPromptHistoryTotalCharacters = 200000;
+    private const int MaxPendingFollowUpPrompts = 20;
+    private const int MaxDisplayedConversationMessages = 240;
+    private const int MaxRawOutputCharacters = 100000;
     private const string SettingsSectionAccount = "account";
     private const string SettingsSectionCodexMenu = "codex-menu";
     private const string SettingsSectionCodex = "codex";
@@ -42,6 +48,10 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
     private readonly SolutionContextService _solutionContextService = new();
     private readonly object _assistantOutputSync = new();
     private readonly StringBuilder _assistantOutputBuffer = new();
+    private readonly object _pendingFollowUpSync = new();
+    private readonly Queue<PendingSubmission> _pendingFollowUpPrompts = new();
+    private readonly HashSet<string> _ownedTempImagePaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _deferredTempImagePaths = new(StringComparer.OrdinalIgnoreCase);
 
     private CancellationTokenSource? _cts;
     private ChatMessage? _currentAssistantMessage;
@@ -92,15 +102,24 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
     private string _modelRefreshStatus = string.Empty;
     private string _customModelInput = string.Empty;
     private long _conversationStateVersion;
+    private int _focusComposerRequestVersion;
+    private CancellationTokenSource? _mentionSearchCts;
+    private long _mentionSearchVersion;
 
     public CodexToolWindowViewModel()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
+        CleanupStaleTempImages();
         Settings = _settingsStore.Load();
         EnsureSettingsCollectionsInitialized();
+        LocalizationService.SetDefaultLanguageOverride(Settings.LanguageOverride);
         _localization = new LocalizationService(Settings.LanguageOverride);
+        if (!string.IsNullOrWhiteSpace(_settingsStore.LastLoadError))
+        {
+            AppendOutput("[settings] " + _settingsStore.LastLoadError + Environment.NewLine);
+        }
 
-        if (string.IsNullOrWhiteSpace(Settings.DefaultModel)) Settings.DefaultModel = "gpt-5.4";
+        if (string.IsNullOrWhiteSpace(Settings.DefaultModel)) Settings.DefaultModel = "gpt-5.6-sol";
         if (string.IsNullOrWhiteSpace(Settings.ReasoningEffort)) Settings.ReasoningEffort = "high";
         if (string.IsNullOrWhiteSpace(Settings.ModelVerbosity)) Settings.ModelVerbosity = "medium";
         if (string.IsNullOrWhiteSpace(Settings.SandboxMode)) Settings.SandboxMode = "read-only";
@@ -116,10 +135,12 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         _codexProcessService.RateLimitsUpdated += HandleRateLimitsUpdated;
         _codexProcessService.AccountUpdated += HandleAccountUpdated;
 
-        SendCommand = new DelegateCommand(Send, () => !IsBusy && IsCodexReady && !string.IsNullOrWhiteSpace(BuildEffectivePrompt()));
+        SendCommand = new DelegateCommand(Send, () => CanSubmitPrompt());
         CancelCommand = new DelegateCommand(Cancel, () => IsBusy && !IsStopping);
         SaveSettingsCommand = new DelegateCommand(ApplySettings);
         ClearOutputCommand = new DelegateCommand(() => Output = string.Empty);
+        ClearPromptHistoryCommand = new DelegateCommand(ClearPromptHistory);
+        CompactConversationCommand = new DelegateCommand(CompactCurrentConversation);
         UseSolutionDirectoryCommand = new DelegateCommand(UseSolutionDirectory);
         OpenCodexConfigCommand = new DelegateCommand(OpenCodexConfig);
         OpenExtensionSettingsCommand = new DelegateCommand(OpenExtensionSettings);
@@ -172,7 +193,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         ResolveUserInputCommand = new DelegateCommand(ResolveUserInput);
 
         ReplaceModelOptions(MergeModelOptions(
-            Enumerable.Empty<SelectionOption>(),
+            Enumerable.Empty<CodexModelOption>(),
             CreateFallbackModelOptions(),
             Settings.CustomModels,
             _selectedModel));
@@ -195,12 +216,14 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
         RefreshMentions();
         UpdateContextEstimate();
-        ThreadHelper.JoinableTaskFactory.RunAsync(InitializeSafeAsync);
+        InitializeSafeAsync().FileAndForget("CodexVsix/Initialize");
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public LocalizationService Localization => _localization;
+
+    internal CodexProcessService ProcessService => _codexProcessService;
 
     public void Dispose()
     {
@@ -208,6 +231,21 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         _userInputDecisionTcs?.TrySetResult(new JObject { ["answers"] = new JObject() });
         _cts?.Cancel();
         _cts?.Dispose();
+        _mentionSearchCts?.Cancel();
+        _mentionSearchCts?.Dispose();
+        lock (_pendingFollowUpSync)
+        {
+            foreach (var submission in _pendingFollowUpPrompts)
+            {
+                CleanupSubmissionTempImages(submission);
+            }
+
+            _pendingFollowUpPrompts.Clear();
+        }
+        foreach (var path in _ownedTempImagePaths.ToList())
+        {
+            TryDeleteOwnedTempImage(path);
+        }
         ClearPendingAssistantOutput();
         ManagedMcpServers.CollectionChanged -= HandleManagedMcpServersChanged;
         Skills.CollectionChanged -= HandleSkillsChanged;
@@ -233,7 +271,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
     public ObservableCollection<CodexRemoteSkillSummary> RemoteSkills { get; } = new();
     public ObservableCollection<CodexSkillSummary> DetectedPromptSkills { get; } = new();
     public ObservableRangeCollection<ChatMessage> Messages { get; } = new();
-    public ObservableCollection<SelectionOption> ModelOptions { get; } = new();
+    public ObservableCollection<CodexModelOption> ModelOptions { get; } = new();
 
     public bool IsRefreshingModels
     {
@@ -284,10 +322,21 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         }
     }
 
-    public SelectionOption[] ReasoningOptions => MergeConfigurableOptions(
-        _localization.CreateReasoningOptions(),
-        Settings.CustomReasoningEfforts,
-        SelectedReasoningEffort).ToArray();
+    public SelectionOption[] ReasoningOptions
+    {
+        get
+        {
+            var model = GetSelectedModelOption();
+            var supportedEfforts = model?.HasReasoningEffortMetadata == true
+                ? model.SupportedReasoningEfforts
+                : null;
+
+            return MergeConfigurableOptions(
+                _localization.CreateReasoningOptions(supportedEfforts),
+                GetApplicableCustomReasoningEfforts(model),
+                SelectedReasoningEffort).ToArray();
+        }
+    }
 
     public SelectionOption[] ReasoningMenuOptions => new[]
     {
@@ -308,6 +357,12 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
     public SelectionOption[] SandboxModeOptions => _localization.CreateSandboxModeOptions();
 
+    public SelectionOption[] FollowUpQueueModeOptions => _localization.CreateFollowUpQueueModeOptions();
+
+    public SelectionOption[] ComposerEnterBehaviorOptions => _localization.CreateComposerEnterBehaviorOptions();
+
+    public SelectionOption[] ReviewDeliveryOptions => _localization.CreateReviewDeliveryOptions();
+
     public SelectionOption[] LanguageOptions => _localization.CreateLanguageOptions();
 
     public SelectionOption[] McpTransportOptions => new[]
@@ -320,6 +375,9 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
     public DelegateCommand CancelCommand { get; }
     public DelegateCommand SaveSettingsCommand { get; }
     public DelegateCommand ClearOutputCommand { get; }
+
+    public DelegateCommand ClearPromptHistoryCommand { get; }
+    public DelegateCommand CompactConversationCommand { get; }
     public DelegateCommand UseSolutionDirectoryCommand { get; }
     public DelegateCommand OpenCodexConfigCommand { get; }
     public DelegateCommand OpenExtensionSettingsCommand { get; }
@@ -390,6 +448,64 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         {
             _output = value;
             OnPropertyChanged();
+        });
+    }
+
+    public int FocusComposerRequestVersion => _focusComposerRequestVersion;
+
+    public void StartNewAgentFromIdeCommand()
+    {
+        RunOnUiThread(() =>
+        {
+            StartNewThread();
+            PromptEditorText = string.Empty;
+            RequestComposerFocus();
+        });
+    }
+
+    public void ReplaceComposerPromptFromIdeCommand(string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            RequestComposerFocus();
+            return;
+        }
+
+        RunOnUiThread(() =>
+        {
+            PromptEditorText = prompt.Trim();
+            ShowHistoryPanel = false;
+            ShowSettingsPanel = false;
+            RequestComposerFocus();
+        });
+    }
+
+    public void AppendComposerContextFromIdeCommand(string context)
+    {
+        if (string.IsNullOrWhiteSpace(context))
+        {
+            RequestComposerFocus();
+            return;
+        }
+
+        RunOnUiThread(() =>
+        {
+            var existing = PromptEditorText?.TrimEnd() ?? string.Empty;
+            PromptEditorText = string.IsNullOrWhiteSpace(existing)
+                ? context.Trim()
+                : existing + Environment.NewLine + Environment.NewLine + context.Trim();
+            ShowHistoryPanel = false;
+            ShowSettingsPanel = false;
+            RequestComposerFocus();
+        });
+    }
+
+    public void RequestComposerFocus()
+    {
+        RunOnUiThread(() =>
+        {
+            _focusComposerRequestVersion++;
+            OnPropertyChanged(nameof(FocusComposerRequestVersion));
         });
     }
 
@@ -777,9 +893,11 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             _selectedModel = value;
             Settings.DefaultModel = value;
             EnsureSelectedModelOption(value);
+            EnsureSelectedReasoningEffortIsSupported();
             OnPropertyChanged();
             OnPropertyChanged(nameof(ProfileLabel));
             OnPropertyChanged(nameof(SelectedModelLabel));
+            NotifyReasoningOptionsChanged();
             AddCustomModelCommand?.RaiseCanExecuteChanged();
             SaveSettings();
         }
@@ -790,7 +908,9 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         get => _selectedReasoningEffort;
         set
         {
-            value = NormalizeReasoningEffortValue(value);
+            value = CodexModelCatalog.ResolveReasoningEffort(
+                GetSelectedModelOption(),
+                NormalizeReasoningEffortValue(value));
             if (string.Equals(_selectedReasoningEffort, value, StringComparison.Ordinal))
             {
                 return;
@@ -866,7 +986,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
     public string CollaborationModeLabel => PlanModeEnabled ? _localization.AgentModeLabel : _localization.QuestionModeLabel;
 
-    public string SelectedModelLabel => GetOptionLabel(ModelOptions, SelectedModel, ModelOptions.FirstOrDefault()?.Label ?? "gpt-5.4");
+    public string SelectedModelLabel => GetOptionLabel(ModelOptions, SelectedModel, ModelOptions.FirstOrDefault()?.Label ?? "gpt-5.6-sol");
 
     public bool IsFastModeEnabled => string.Equals(SelectedServiceTier, "fast", StringComparison.Ordinal);
 
@@ -899,6 +1019,89 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
     public string SelectedApprovalPolicyLabel => GetOptionLabel(ApprovalPolicyOptions, SelectedApprovalPolicy, ApprovalPolicyOptions.FirstOrDefault()?.Label ?? string.Empty);
 
     public string SelectedSandboxModeLabel => GetOptionLabel(SandboxModeOptions, SelectedSandboxMode, SandboxModeOptions.FirstOrDefault(option => string.Equals(option.Value, "read-only", StringComparison.Ordinal))?.Label ?? "read-only");
+
+    public string SelectedFollowUpQueueMode
+    {
+        get => Settings.FollowUpQueueMode;
+        set
+        {
+            value = EnsureOptionValue(value, FollowUpQueueModeOptions, "queue");
+            if (string.Equals(Settings.FollowUpQueueMode, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            Settings.FollowUpQueueMode = value;
+            OnPropertyChanged();
+            SaveSettings();
+        }
+    }
+
+    public string SelectedComposerEnterBehavior
+    {
+        get => Settings.ComposerEnterBehavior;
+        set
+        {
+            value = EnsureLiteralValue(value, "enter", "enter", "cmdIfMultiline", "ctrlEnter");
+            if (string.Equals(Settings.ComposerEnterBehavior, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            Settings.ComposerEnterBehavior = value;
+            OnPropertyChanged();
+            SaveSettings();
+        }
+    }
+
+    public string SelectedReviewDelivery
+    {
+        get => Settings.ReviewDelivery;
+        set
+        {
+            value = EnsureOptionValue(value, ReviewDeliveryOptions, "inline");
+            if (string.Equals(Settings.ReviewDelivery, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            Settings.ReviewDelivery = value;
+            OnPropertyChanged();
+            SaveSettings();
+        }
+    }
+
+    public bool OpenOnStartupEnabled
+    {
+        get => Settings.OpenOnStartup;
+        set
+        {
+            if (Settings.OpenOnStartup == value)
+            {
+                return;
+            }
+
+            Settings.OpenOnStartup = value;
+            OnPropertyChanged();
+            SaveSettings();
+        }
+    }
+
+    public bool AutoCompactLongConversationsEnabled
+    {
+        get => Settings.AutoCompactLongConversations;
+        set
+        {
+            if (Settings.AutoCompactLongConversations == value)
+            {
+                return;
+            }
+
+            Settings.AutoCompactLongConversations = value;
+            OnPropertyChanged();
+            SaveSettings();
+        }
+    }
 
     public bool PlanModeEnabled
     {
@@ -948,7 +1151,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         : string.Empty;
 
     public string ContextWindowDetail => string.Format(
-        CultureInfo.CurrentUICulture,
+        _localization.Culture,
         _localization.ContextWindowDetailFormat,
         FormatPercent(GetContextUsedRatio(_lastKnownContextTokensInWindow, _contextTokenBudget)),
         FormatPercent(GetContextRemainingRatio(_lastKnownContextTokensInWindow, _contextTokenBudget)));
@@ -1122,7 +1325,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
             if (!_suppressThreadSelection && value is not null)
             {
-                ThreadHelper.JoinableTaskFactory.RunAsync(() => OpenThreadAsync(value.ThreadId));
+                OpenThreadAsync(value.ThreadId).FileAndForget("CodexVsix/OpenThread");
             }
         }
     }
@@ -1214,10 +1417,11 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         }
     }
 
-    private async Task SendAsync()
+    private async Task SendAsync(PendingSubmission? queuedSubmission = null)
     {
-        var promptToSend = BuildEffectivePrompt();
-        if (IsBusy || string.IsNullOrWhiteSpace(promptToSend))
+        var promptToSend = queuedSubmission?.Prompt ?? BuildEffectivePrompt();
+        var submission = queuedSubmission ?? CaptureComposerSubmission(promptToSend);
+        if (string.IsNullOrWhiteSpace(promptToSend))
         {
             return;
         }
@@ -1225,6 +1429,12 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         if (!IsCodexReady)
         {
             AppendOutput("[" + _localization.OutputTagSetup + "] " + CodexSetupSummary + Environment.NewLine);
+            return;
+        }
+
+        if (IsBusy)
+        {
+            await CaptureFollowUpPromptAsync(submission);
             return;
         }
 
@@ -1246,10 +1456,10 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
         var conversationStateVersion = CaptureConversationStateVersion();
 
-        var ideContextSummary = await CaptureIdeContextSummaryAsync().ConfigureAwait(false);
+        var ideContextSummary = await CaptureIdeContextSummaryAsync();
 
-        SaveSettings();
         AddPromptToHistory(promptToSend);
+        SaveSettings();
         ClearPersistedEventMessages();
         AddUserMessage(promptToSend.Trim());
 
@@ -1259,14 +1469,17 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         _currentAssistantMessage = null;
         _currentPlanMessage = null;
         ClearTransientStatusMessage();
-        Prompt = string.Empty;
+        if (queuedSubmission is null)
+        {
+            ClearComposerSubmission();
+        }
 
         try
         {
             var exitCode = await _codexProcessService.ExecuteAsync(
                 promptToSend,
                 Settings,
-                AttachedImages.ToList(),
+                submission.ImagePaths,
                 ideContextSummary,
                 onOutput: text =>
                 {
@@ -1298,7 +1511,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
                 },
                 cancellationToken: _cts.Token);
 
-            await FlushPendingAssistantOutputAsync().ConfigureAwait(false);
+            await FlushPendingAssistantOutputAsync();
 
             if (!IsConversationStateCurrent(conversationStateVersion))
             {
@@ -1313,9 +1526,9 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             Settings.CurrentThreadId = _codexProcessService.CurrentThreadId ?? Settings.CurrentThreadId;
             Settings.LastThreadWorkingDirectory = Settings.WorkingDirectory;
             SaveSettings();
-            await RefreshThreadsAsync(Settings.CurrentThreadId).ConfigureAwait(false);
-            await EnsureCurrentThreadHasFriendlyNameAsync(shouldAutoNameThread ? promptToSend : null).ConfigureAwait(false);
-            await RefreshServerSurfacesAsync().ConfigureAwait(false);
+            await RefreshThreadsAsync(Settings.CurrentThreadId);
+            await EnsureCurrentThreadHasFriendlyNameAsync(shouldAutoNameThread ? promptToSend : null);
+            await RefreshServerSurfacesAsync();
             AppendOutput($"{Environment.NewLine}[{_localization.ExitCodeLabel}: {exitCode}]{Environment.NewLine}");
         }
         catch (OperationCanceledException)
@@ -1336,17 +1549,21 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         }
         finally
         {
-            await FlushPendingAssistantOutputAsync().ConfigureAwait(false);
+            await FlushPendingAssistantOutputAsync();
 
             if (IsConversationStateCurrent(conversationStateVersion))
             {
                 ClearTransientStatusMessage();
             }
 
+            CleanupSubmissionTempImages(submission);
+            CleanupDeferredTempImages();
             IsStopping = false;
             IsBusy = false;
-            _cts?.Dispose();
+            var completedCts = _cts;
             _cts = null;
+            completedCts?.Dispose();
+            SendQueuedFollowUpIfAvailable();
         }
     }
 
@@ -1357,18 +1574,15 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        CodexThreadSummary? currentThread = null;
-        RunOnUiThread(() =>
-        {
-            currentThread = Threads.FirstOrDefault(thread => string.Equals(thread.ThreadId, Settings.CurrentThreadId, StringComparison.Ordinal));
-        });
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        var currentThread = Threads.FirstOrDefault(thread => string.Equals(thread.ThreadId, Settings.CurrentThreadId, StringComparison.Ordinal));
 
         if (currentThread is null || !string.IsNullOrWhiteSpace(currentThread.Name))
         {
             return;
         }
 
-        var friendlyName = BuildFriendlyThreadName(prompt);
+        var friendlyName = BuildFriendlyThreadName(prompt!);
         if (string.IsNullOrWhiteSpace(friendlyName))
         {
             return;
@@ -1397,7 +1611,153 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
     private void Send()
     {
-        ThreadHelper.JoinableTaskFactory.RunAsync(SendAsync);
+        SendAsync().FileAndForget("CodexVsix/SendPrompt");
+    }
+
+    private bool CanSubmitPrompt()
+    {
+        if (!IsCodexReady || string.IsNullOrWhiteSpace(BuildEffectivePrompt()))
+        {
+            return false;
+        }
+
+        return !IsBusy || !IsStopping;
+    }
+
+    private PendingSubmission CaptureComposerSubmission(string prompt)
+    {
+        var imagePaths = AttachedImages
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var ownedPaths = imagePaths
+            .Where(path => _ownedTempImagePaths.Contains(path))
+            .ToList();
+        return new PendingSubmission(prompt, imagePaths, ownedPaths);
+    }
+
+    private void ClearComposerSubmission()
+    {
+        Prompt = string.Empty;
+        AttachedImages.Clear();
+        SelectedImagePath = null;
+    }
+
+    private void CleanupSubmissionTempImages(PendingSubmission submission)
+    {
+        foreach (var path in submission.OwnedTempImagePaths)
+        {
+            TryDeleteOwnedTempImage(path);
+        }
+    }
+
+    private void CleanupDeferredTempImages()
+    {
+        foreach (var path in _deferredTempImagePaths.ToList())
+        {
+            TryDeleteOwnedTempImage(path);
+        }
+
+        _deferredTempImagePaths.Clear();
+    }
+
+    private void TryDeleteOwnedTempImage(string path)
+    {
+        _ownedTempImagePaths.Remove(path);
+        _deferredTempImagePaths.Remove(path);
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // A later startup cleanup retries files temporarily locked by AV or WPF.
+        }
+    }
+
+    private async Task CaptureFollowUpPromptAsync(PendingSubmission submission)
+    {
+        var mode = EnsureLiteralValue(Settings.FollowUpQueueMode, "queue", "queue", "steer", "interrupt");
+        ClearComposerSubmission();
+
+        if (string.Equals(mode, "steer", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var ideContextSummary = await CaptureIdeContextSummaryAsync();
+                if (await _codexProcessService.SteerActiveTurnAsync(
+                    submission.Prompt,
+                    Settings,
+                    submission.ImagePaths,
+                    ideContextSummary,
+                    CancellationToken.None))
+                {
+                    AddPromptToHistory(submission.Prompt);
+                    AddUserMessage(submission.Prompt.Trim());
+                    foreach (var path in submission.OwnedTempImagePaths)
+                    {
+                        _deferredTempImagePaths.Add(path);
+                    }
+
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendOutput("[turn/steer] " + ex.Message + Environment.NewLine);
+            }
+        }
+
+        EnqueueFollowUp(submission);
+
+        if (string.Equals(mode, "interrupt", StringComparison.OrdinalIgnoreCase))
+        {
+            await CancelAsync();
+        }
+    }
+
+    private void EnqueueFollowUp(PendingSubmission submission)
+    {
+        PendingSubmission? discarded = null;
+        lock (_pendingFollowUpSync)
+        {
+            _pendingFollowUpPrompts.Enqueue(submission);
+            while (_pendingFollowUpPrompts.Count > MaxPendingFollowUpPrompts)
+            {
+                discarded = _pendingFollowUpPrompts.Dequeue();
+            }
+        }
+
+        if (discarded is not null)
+        {
+            CleanupSubmissionTempImages(discarded);
+        }
+    }
+
+    private void SendQueuedFollowUpIfAvailable()
+    {
+        if (IsBusy || IsStopping)
+        {
+            return;
+        }
+
+        PendingSubmission? nextSubmission;
+        lock (_pendingFollowUpSync)
+        {
+            nextSubmission = _pendingFollowUpPrompts.Count == 0
+                ? null
+                : _pendingFollowUpPrompts.Dequeue();
+        }
+
+        if (nextSubmission is null || string.IsNullOrWhiteSpace(nextSubmission.Prompt))
+        {
+            return;
+        }
+
+        SendAsync(nextSubmission).FileAndForget("CodexVsix/QueuedFollowUp");
     }
 
     private async Task<string> CaptureIdeContextSummaryAsync()
@@ -1409,12 +1769,10 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
         var summary = _solutionContextService.BuildIdeContextSummary(Settings.WorkingDirectory);
-        return string.IsNullOrWhiteSpace(summary)
-            ? string.Empty
-            : _localization.IdeContextPrefix + Environment.NewLine + summary;
+        return summary;
     }
 
-    private void SaveSettings()
+    private void SaveSettings(bool mergePromptHistory = true)
     {
         Settings.ManagedMcpServers = ManagedMcpServers
             .Select(CloneManagedMcpServer)
@@ -1442,12 +1800,54 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         Settings.ServiceTier = SelectedServiceTier;
         Settings.ApprovalPolicy = SelectedApprovalPolicy;
         Settings.SandboxMode = SelectedSandboxMode;
-        _settingsStore.Save(Settings);
+        Settings.FollowUpQueueMode = SelectedFollowUpQueueMode;
+        Settings.ComposerEnterBehavior = SelectedComposerEnterBehavior;
+        Settings.ReviewDelivery = SelectedReviewDelivery;
+        try
+        {
+            _settingsStore.Save(Settings, mergePromptHistory);
+        }
+        catch (Exception ex)
+        {
+            ActivityLog.TryLogError("CodexVsix", "Could not save extension settings: " + ex);
+            AppendOutput("[settings] " + ex.Message + Environment.NewLine);
+        }
+    }
+
+    internal void NotifySettingsChangedFromOfficialWebView(string settingKey)
+    {
+        RunOnUiThread(() =>
+        {
+            switch (settingKey)
+            {
+                case "cliExecutable":
+                    OnPropertyChanged(nameof(Settings));
+                    break;
+                case "openOnStartup":
+                    OnPropertyChanged(nameof(OpenOnStartupEnabled));
+                    break;
+                case "autoCompactLongConversations":
+                    OnPropertyChanged(nameof(AutoCompactLongConversationsEnabled));
+                    break;
+                case "followUpQueueMode":
+                    OnPropertyChanged(nameof(SelectedFollowUpQueueMode));
+                    break;
+                case "composerEnterBehavior":
+                    OnPropertyChanged(nameof(SelectedComposerEnterBehavior));
+                    break;
+                case "reviewDelivery":
+                    OnPropertyChanged(nameof(SelectedReviewDelivery));
+                    break;
+                case "localeOverride":
+                    OnPropertyChanged(nameof(SelectedLanguageTag));
+                    break;
+            }
+        });
     }
 
     private void ApplySettings()
     {
-        ThreadHelper.JoinableTaskFactory.RunAsync(async delegate
+        RunDetached(async delegate
         {
             SaveSettings();
             await RefreshCodexStatusAsync().ConfigureAwait(false);
@@ -1459,32 +1859,30 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
             await RefreshModelOptionsAsync().ConfigureAwait(false);
             await RefreshServerSurfacesAsync(forceSkillReload: true).ConfigureAwait(false);
-        });
+        }, "CodexVsix/ApplySettings");
     }
 
     private void Cancel()
+    {
+        CancelAsync().FileAndForget("CodexVsix/CancelTurn");
+    }
+
+    private async Task CancelAsync()
     {
         if (!IsBusy || IsStopping)
         {
             return;
         }
 
-        BeginConversationStateChange();
         IsStopping = true;
         _approvalDecisionTcs?.TrySetResult(JValue.CreateString("cancel"));
         CurrentApprovalPrompt = null;
         _approvalDecisionTcs = null;
         DismissUserInputPrompt();
         var cts = _cts;
-        _cts = null;
-        _codexProcessService.CancelActiveTurn();
         cts?.Cancel();
-        cts?.Dispose();
+        await _codexProcessService.CancelActiveTurnAsync();
         ClearTransientStatusMessage();
-        _currentAssistantMessage = null;
-        _currentPlanMessage = null;
-        IsStopping = false;
-        IsBusy = false;
     }
 
     public void PasteImageFromClipboard()
@@ -1503,6 +1901,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             }
 
             var filePath = SaveBitmapToTempPng(image);
+            _ownedTempImagePaths.Add(filePath);
             AttachedImages.Add(filePath);
             SelectedImagePath = filePath;
             UpdateContextEstimate();
@@ -1530,8 +1929,13 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         {
             if (IsImageFile(fileName))
             {
-                AttachedImages.Add(fileName);
-                SelectedImagePath = fileName;
+                var info = new FileInfo(fileName);
+                if (info.Exists && info.Length <= 50L * 1024L * 1024L
+                    && !AttachedImages.Contains(fileName, StringComparer.OrdinalIgnoreCase))
+                {
+                    AttachedImages.Add(fileName);
+                    SelectedImagePath = fileName;
+                }
             }
             else
             {
@@ -1549,7 +1953,12 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        AttachedImages.Remove(SelectedImagePath);
+        var path = SelectedImagePath;
+        AttachedImages.Remove(path);
+        if (_ownedTempImagePaths.Contains(path))
+        {
+            TryDeleteOwnedTempImage(path);
+        }
         SelectedImagePath = null;
         UpdateContextEstimate();
     }
@@ -1562,6 +1971,10 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         }
 
         AttachedImages.Remove(filePath);
+        if (_ownedTempImagePaths.Contains(filePath))
+        {
+            TryDeleteOwnedTempImage(filePath);
+        }
         if (string.Equals(SelectedImagePath, filePath, StringComparison.Ordinal))
         {
             SelectedImagePath = null;
@@ -1598,7 +2011,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        ApplyWorkingDirectory(solutionDirectory, resetConversation: true);
+        ApplyWorkingDirectory(solutionDirectory!, resetConversation: true);
         OnPropertyChanged(nameof(Settings));
         _settingsStore.Save(Settings);
     }
@@ -1608,6 +2021,11 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         if (string.IsNullOrWhiteSpace(workingDirectory))
         {
             return;
+        }
+
+        if (!string.Equals(Settings.WorkingDirectory, workingDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            _solutionContextService.InvalidateFileIndex();
         }
 
         Settings.WorkingDirectory = workingDirectory;
@@ -1662,7 +2080,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         Settings.DefaultModel = NormalizeModelValue(Settings.DefaultModel);
         if (string.IsNullOrWhiteSpace(Settings.DefaultModel))
         {
-            Settings.DefaultModel = "gpt-5.4";
+            Settings.DefaultModel = "gpt-5.6-sol";
         }
 
         Settings.ReasoningEffort = EnsureKnownOrCustomOptionValue(NormalizeReasoningEffortValue(Settings.ReasoningEffort), ReasoningOptions, "high");
@@ -1670,6 +2088,16 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         Settings.ServiceTier = EnsureKnownOrCustomOptionValue(Settings.ServiceTier, ServiceTierOptions, string.Empty);
         Settings.SandboxMode = EnsureOptionValue(Settings.SandboxMode, SandboxModeOptions, "read-only");
         Settings.ApprovalPolicy = EnsureOptionValue(Settings.ApprovalPolicy, ApprovalPolicyOptions, string.Empty);
+        Settings.FollowUpQueueMode = EnsureLiteralValue(Settings.FollowUpQueueMode, "queue", "queue", "steer", "interrupt");
+        Settings.ComposerEnterBehavior = EnsureLiteralValue(Settings.ComposerEnterBehavior, "enter", "enter", "ctrlEnter", "cmdIfMultiline");
+        Settings.ReviewDelivery = EnsureLiteralValue(Settings.ReviewDelivery, "inline", "inline", "detached");
+    }
+
+    private static string EnsureLiteralValue(string value, string fallback, params string[] allowedValues)
+    {
+        return allowedValues.Any(option => string.Equals(option, value, StringComparison.OrdinalIgnoreCase))
+            ? allowedValues.First(option => string.Equals(option, value, StringComparison.OrdinalIgnoreCase))
+            : fallback;
     }
 
     private void EnsureSettingsCollectionsInitialized()
@@ -1684,8 +2112,9 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
         Settings.PromptHistory = Settings.PromptHistory
             .Where(item => !string.IsNullOrWhiteSpace(item))
-            .Select(item => item.Trim())
+            .Select(CreatePromptHistoryEntry)
             .ToList();
+        TrimPromptHistory();
 
         Settings.CustomModels = Settings.CustomModels
             .Where(model => !string.IsNullOrWhiteSpace(model))
@@ -1854,22 +2283,8 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             : normalized;
     }
 
-    private static string NormalizeReasoningEffortValue(string? value)
-    {
-        var normalized = (value ?? string.Empty).Trim().ToLowerInvariant();
-        switch (normalized)
-        {
-            case "minimum":
-            case "min":
-            case "minimal":
-                return "minimal";
-            case "maximum":
-            case "max":
-                return "xhigh";
-            default:
-                return normalized;
-        }
-    }
+    private static string NormalizeReasoningEffortValue(string? value) =>
+        CodexModelCatalog.NormalizeReasoningEffort(value);
 
     private static string NormalizeLanguageTag(string? value)
     {
@@ -1911,11 +2326,8 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
     private void ApplyLocalization(string? languageOverride)
     {
+        LocalizationService.SetDefaultLanguageOverride(languageOverride);
         _localization = new LocalizationService(languageOverride);
-        CultureInfo.CurrentUICulture = _localization.Culture;
-        CultureInfo.CurrentCulture = _localization.Culture;
-        CultureInfo.DefaultThreadCurrentUICulture = _localization.Culture;
-        CultureInfo.DefaultThreadCurrentCulture = _localization.Culture;
         CodexToolWindowManager.RefreshSettingsToolWindowCaption(_localization);
         OnPropertyChanged(nameof(Localization));
         OnPropertyChanged(nameof(ReasoningOptions));
@@ -2047,7 +2459,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         ThreadHelper.JoinableTaskFactory.Run(async delegate
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            if (TryResolveReferencedFile(reference, out var resolved))
+            if (TryResolveReferencedFileWithSolution(reference, out var resolved))
             {
                 _solutionContextService.OpenFileInVisualStudio(resolved.Path, resolved.Line, resolved.Column);
             }
@@ -2102,6 +2514,37 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         return false;
     }
 
+    private bool TryResolveReferencedFileWithSolution(string reference, out ReferencedFile resolved)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        if (TryResolveReferencedFile(reference, out resolved))
+        {
+            return true;
+        }
+
+        var normalized = NormalizeReferencedFileText(reference);
+        if (Uri.TryCreate(normalized, UriKind.Absolute, out var uri)
+            && string.Equals(uri.Scheme, Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = uri.LocalPath + uri.Fragment;
+        }
+
+        normalized = DecodeReferencedFileText(normalized);
+        var pathText = NormalizeReferencedPathText(DecodeReferencedFileText(
+            StripReferencedFilePosition(normalized, out var line, out var column)));
+        var solutionDirectory = _solutionContextService.TryGetSolutionDirectory();
+        foreach (var candidate in GetSolutionFileReferenceCandidates(pathText, solutionDirectory))
+        {
+            if (File.Exists(candidate))
+            {
+                resolved = new ReferencedFile(Path.GetFullPath(candidate), line, column);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private IEnumerable<string> GetReferencedFileCandidates(string pathText)
     {
         if (string.IsNullOrWhiteSpace(pathText))
@@ -2129,24 +2572,6 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             }
         }
 
-        var solutionDirectory = _solutionContextService.TryGetSolutionDirectory();
-        if (!string.IsNullOrWhiteSpace(solutionDirectory)
-            && !string.Equals(solutionDirectory, workingDirectory, StringComparison.OrdinalIgnoreCase))
-        {
-            var candidate = Path.Combine(solutionDirectory, pathText);
-            if (seen.Add(candidate))
-            {
-                yield return candidate;
-            }
-        }
-
-        foreach (var candidate in GetSolutionFileReferenceCandidates(pathText, solutionDirectory))
-        {
-            if (seen.Add(candidate))
-            {
-                yield return candidate;
-            }
-        }
     }
 
     private static string NormalizeReferencedFileText(string reference)
@@ -2180,6 +2605,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
     private IEnumerable<string> GetSolutionFileReferenceCandidates(string pathText, string? solutionDirectory)
     {
+        ThreadHelper.ThrowIfNotOnUIThread();
         var normalizedReference = NormalizeReferenceForComparison(pathText);
         if (string.IsNullOrWhiteSpace(normalizedReference))
         {
@@ -2322,7 +2748,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
     private void RefreshIntegrations()
     {
-        ThreadHelper.JoinableTaskFactory.RunAsync(async delegate
+        RunDetached(async delegate
         {
             await RefreshCodexStatusAsync().ConfigureAwait(false);
             if (!IsCodexReady)
@@ -2332,17 +2758,17 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             }
 
             await RefreshServerSurfacesAsync(forceSkillReload: true).ConfigureAwait(false);
-        });
+        }, "CodexVsix/RefreshIntegrations");
     }
 
     private void RefreshCodexStatus()
     {
-        ThreadHelper.JoinableTaskFactory.RunAsync(RefreshCodexStatusAsync);
+        RefreshCodexStatusAsync().FileAndForget("CodexVsix/RefreshStatus");
     }
 
     private void RefreshModels(object? _)
     {
-        ThreadHelper.JoinableTaskFactory.RunAsync(() => RefreshModelOptionsAsync(force: true));
+        RefreshModelOptionsAsync(force: true).FileAndForget("CodexVsix/RefreshModels");
     }
 
     private void AddCustomModel(object? _)
@@ -2361,7 +2787,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             CreateFallbackModelOptions(),
             Settings.CustomModels,
             SelectedModel));
-        ModelRefreshStatus = "Modelo personalizado adicionado.";
+        ModelRefreshStatus = _localization.CustomModelAddedStatus;
         SaveSettings();
     }
 
@@ -2408,36 +2834,55 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        ThreadHelper.JoinableTaskFactory.RunAsync(async delegate
+        RunDetached(async delegate
         {
             try
             {
-                _codexEnvironmentService.DeleteAuthFile(CodexEnvironmentStatus.AuthFilePath);
+                await LogOutCoreAsync();
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 _codexEnvironmentService.LaunchLoginTerminal(executablePath);
-                await RefreshCodexStatusAsync().ConfigureAwait(false);
+                await RefreshCodexStatusAsync();
             }
             catch (Exception ex)
             {
                 AppendOutput("[" + _localization.OutputTagAuth + "] " + ex.Message + Environment.NewLine);
             }
-        });
+        }, "CodexVsix/LogoutAndLogin");
     }
 
     private void LogOut(object? _)
     {
-        ThreadHelper.JoinableTaskFactory.RunAsync(async delegate
+        RunDetached(async delegate
         {
             try
             {
-                _codexEnvironmentService.DeleteAuthFile(CodexEnvironmentStatus.AuthFilePath);
-                await RefreshCodexStatusAsync().ConfigureAwait(false);
+                await LogOutCoreAsync();
+                await RefreshCodexStatusAsync();
             }
             catch (Exception ex)
             {
                 AppendOutput("[" + _localization.OutputTagAuth + "] " + ex.Message + Environment.NewLine);
             }
-        });
+        }, "CodexVsix/Logout");
+    }
+
+    private async Task LogOutCoreAsync()
+    {
+        try
+        {
+            await _codexProcessService.LogoutAsync(Settings, CancellationToken.None);
+        }
+        catch (Exception protocolError)
+        {
+            AppendOutput("[" + _localization.OutputTagAuth + "] app-server logout failed; using local credential cleanup: "
+                + protocolError.Message + Environment.NewLine);
+            _codexEnvironmentService.DeleteAuthFile(CodexEnvironmentStatus.AuthFilePath);
+        }
+
+        Settings.CurrentThreadId = string.Empty;
+        _codexProcessService.ResetThread();
+        ClearServerSurfaces();
+        SaveSettings();
     }
 
     private void CopyCodexInstallCommandText(object? _)
@@ -2473,7 +2918,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
     private void CreateSkill(object? _)
     {
-        ThreadHelper.JoinableTaskFactory.RunAsync(CreateSkillAsync);
+        CreateSkillAsync().FileAndForget("CodexVsix/CreateSkill");
     }
 
     private async Task CreateSkillAsync()
@@ -2712,7 +3157,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        ThreadHelper.JoinableTaskFactory.RunAsync(() => ToggleSkillEnabledAsync(skill));
+        ToggleSkillEnabledAsync(skill).FileAndForget("CodexVsix/ToggleSkill");
     }
 
     private async Task ToggleSkillEnabledAsync(CodexSkillSummary skill)
@@ -2722,13 +3167,13 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         try
         {
             var effectiveValue = await _codexProcessService.SetSkillEnabledAsync(Settings, skill.Path, requestedValue, CancellationToken.None).ConfigureAwait(false);
-            RunOnUiThread(() => skill.IsEnabled = effectiveValue);
+            await RunOnUiThreadAsync(() => skill.IsEnabled = effectiveValue);
             _codexProcessService.InvalidateSkillsCache();
             await RefreshServerSurfacesAsync(forceSkillReload: true).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            RunOnUiThread(() => skill.IsEnabled = !requestedValue);
+            await RunOnUiThreadAsync(() => skill.IsEnabled = !requestedValue);
             AppendOutput("[" + _localization.OutputTagSkills + "] " + ex.Message + Environment.NewLine);
         }
     }
@@ -2740,17 +3185,18 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        ThreadHelper.JoinableTaskFactory.RunAsync(() => InstallRemoteSkillAsync(skill));
+        InstallRemoteSkillAsync(skill).FileAndForget("CodexVsix/InstallRemoteSkill");
     }
 
     private async Task InstallRemoteSkillAsync(CodexRemoteSkillSummary skill)
     {
         try
         {
-            var path = await _codexProcessService.InstallRemoteSkillAsync(Settings, skill.Id, CancellationToken.None).ConfigureAwait(false);
+            var path = await _codexProcessService.InstallRemoteSkillAsync(Settings, skill, CancellationToken.None).ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(path))
             {
-                _solutionContextService.OpenPath(path);
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                _solutionContextService.OpenPath(path!);
             }
 
             _codexProcessService.InvalidateSkillsCache();
@@ -2805,7 +3251,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         try
         {
             var status = await _codexEnvironmentService.InspectAsync(Settings, CancellationToken.None).ConfigureAwait(false);
-            RunOnUiThread(() =>
+            await RunOnUiThreadAsync(() =>
             {
                 CodexEnvironmentStatus = status;
                 HasCompletedEnvironmentCheck = true;
@@ -2813,7 +3259,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         }
         catch (Exception ex)
         {
-            RunOnUiThread(() =>
+            await RunOnUiThreadAsync(() =>
             {
                 CodexEnvironmentStatus = new CodexEnvironmentStatus
                 {
@@ -2861,7 +3307,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         }
 
         _isToolWindowStartupRefreshInProgress = true;
-        ThreadHelper.JoinableTaskFactory.RunAsync(async delegate
+        RunDetached(async delegate
         {
             try
             {
@@ -2888,9 +3334,9 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             }
             finally
             {
-                RunOnUiThread(() => _isToolWindowStartupRefreshInProgress = false);
+                await RunOnUiThreadAsync(() => _isToolWindowStartupRefreshInProgress = false);
             }
-        });
+        }, "CodexVsix/ToolWindowStartup");
     }
 
     private async Task RefreshModelOptionsAsync(bool force = false)
@@ -2900,28 +3346,28 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        RunOnUiThread(() =>
+        await RunOnUiThreadAsync(() =>
         {
             IsRefreshingModels = true;
-            ModelRefreshStatus = "Atualizando modelos...";
+            ModelRefreshStatus = _localization.ModelsRefreshingStatus;
         });
 
         try
         {
             if (!IsCodexReady)
             {
-                RunOnUiThread(() =>
+                await RunOnUiThreadAsync(() =>
                 {
                     if (ModelOptions.Count == 0)
                     {
                         ReplaceModelOptions(MergeModelOptions(
-                            Enumerable.Empty<SelectionOption>(),
+                            Enumerable.Empty<CodexModelOption>(),
                             CreateFallbackModelOptions(),
                             Settings.CustomModels,
                             SelectedModel));
                     }
 
-                    ModelRefreshStatus = "Codex não está pronto. Mantendo modelos locais.";
+                    ModelRefreshStatus = _localization.ModelsNotReadyStatus;
                 });
                 return;
             }
@@ -2930,88 +3376,115 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             var models = await _codexProcessService.ListModelsAsync(Settings, timeout.Token, Settings.IncludeHiddenModels).ConfigureAwait(false);
             if (models.Count == 0)
             {
-                RunOnUiThread(() =>
+                await RunOnUiThreadAsync(() =>
                 {
                     if (ModelOptions.Count == 0)
                     {
                         ReplaceModelOptions(MergeModelOptions(
-                            Enumerable.Empty<SelectionOption>(),
+                            Enumerable.Empty<CodexModelOption>(),
                             CreateFallbackModelOptions(),
                             Settings.CustomModels,
                             SelectedModel));
                     }
 
-                    ModelRefreshStatus = "Nenhum modelo remoto retornado. Mantendo lista atual.";
+                    ModelRefreshStatus = _localization.ModelsEmptyStatus;
                 });
                 return;
             }
 
-            RunOnUiThread(() =>
+            await RunOnUiThreadAsync(() =>
             {
                 ReplaceModelOptions(MergeModelOptions(
                     models,
                     CreateFallbackModelOptions(),
                     Settings.CustomModels,
                     SelectedModel));
-                ModelRefreshStatus = "Modelos atualizados pelo Codex.";
+                ModelRefreshStatus = _localization.ModelsUpdatedStatus;
                 OnPropertyChanged(nameof(SelectedModelLabel));
             });
         }
         catch (Exception ex)
         {
-            RunOnUiThread(() =>
+            await RunOnUiThreadAsync(() =>
             {
                 if (ModelOptions.Count == 0)
                 {
                     ReplaceModelOptions(MergeModelOptions(
-                        Enumerable.Empty<SelectionOption>(),
+                        Enumerable.Empty<CodexModelOption>(),
                         CreateFallbackModelOptions(),
                         Settings.CustomModels,
                         SelectedModel));
                 }
 
-                ModelRefreshStatus = "Falha ao atualizar modelos. Mantendo lista atual.";
+                ModelRefreshStatus = _localization.ModelsRefreshFailedStatus;
             });
             AppendOutput(_localization.LoadModelsErrorPrefix + ex.Message + Environment.NewLine);
         }
         finally
         {
-            RunOnUiThread(() => IsRefreshingModels = false);
+            await RunOnUiThreadAsync(() => IsRefreshingModels = false);
         }
     }
 
-    private static IReadOnlyList<SelectionOption> MergeModelOptions(
-        IEnumerable<SelectionOption> remoteModels,
-        IEnumerable<SelectionOption> fallbackModels,
+    private static IReadOnlyList<CodexModelOption> MergeModelOptions(
+        IEnumerable<CodexModelOption> remoteModels,
+        IEnumerable<CodexModelOption> fallbackModels,
         IEnumerable<string> customModels,
         string selectedModel)
     {
-        var result = new List<SelectionOption>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<CodexModelOption>();
+        var indicesByValue = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var fallbackList = NormalizeOptions(fallbackModels).ToList();
         var fallbackValues = new HashSet<string>(fallbackList.Select(option => option.Value), StringComparer.OrdinalIgnoreCase);
         var selected = NormalizeModelValue(selectedModel);
 
-        void AddOption(string? label, string? value)
+        void AddOption(CodexModelOption? option)
         {
-            value = NormalizeModelValue(value);
+            if (option is null)
+            {
+                return;
+            }
+
+            var value = NormalizeModelValue(option.Value);
             if (!string.IsNullOrWhiteSpace(selected) && string.Equals(value, selected, StringComparison.OrdinalIgnoreCase))
             {
                 value = selected;
             }
 
-            if (string.IsNullOrWhiteSpace(value) || !seen.Add(value))
+            if (string.IsNullOrWhiteSpace(value))
             {
                 return;
             }
 
-            label = string.IsNullOrWhiteSpace(label) ? value : label!.Trim();
-            result.Add(new SelectionOption(label, value));
+            var label = string.IsNullOrWhiteSpace(option.Label) ? value : option.Label.Trim();
+            var normalizedOption = new CodexModelOption(
+                label,
+                value,
+                option.DefaultReasoningEffort,
+                option.SupportedReasoningEfforts);
+
+            if (indicesByValue.TryGetValue(value, out var existingIndex))
+            {
+                var existing = result[existingIndex];
+                if (!existing.HasReasoningEffortMetadata && normalizedOption.HasReasoningEffortMetadata)
+                {
+                    result[existingIndex] = new CodexModelOption(
+                        existing.Label,
+                        existing.Value,
+                        normalizedOption.DefaultReasoningEffort,
+                        normalizedOption.SupportedReasoningEfforts);
+                }
+
+                return;
+            }
+
+            indicesByValue[value] = result.Count;
+            result.Add(normalizedOption);
         }
 
         foreach (var option in NormalizeOptions(remoteModels))
         {
-            AddOption(option.Label, option.Value);
+            AddOption(option);
         }
 
         foreach (var model in customModels ?? Enumerable.Empty<string>())
@@ -3022,31 +3495,31 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
                 continue;
             }
 
-            AddOption(value + " (custom)", value);
+            AddOption(new CodexModelOption(value + " (custom)", value));
         }
 
         if (!string.IsNullOrWhiteSpace(selected) && !fallbackValues.Contains(selected))
         {
-            AddOption(selected + " (custom)", selected);
+            AddOption(new CodexModelOption(selected + " (custom)", selected));
         }
 
         foreach (var option in fallbackList)
         {
-            AddOption(option.Label, option.Value);
+            AddOption(option);
         }
 
         if (result.Count == 0)
         {
             foreach (var option in CreateFallbackModelOptions())
             {
-                AddOption(option.Label, option.Value);
+                AddOption(option);
             }
         }
 
         return result;
     }
 
-    private static IEnumerable<SelectionOption> NormalizeOptions(IEnumerable<SelectionOption>? options)
+    private static IEnumerable<CodexModelOption> NormalizeOptions(IEnumerable<CodexModelOption>? options)
     {
         return options?
             .Where(option => option is not null && !string.IsNullOrWhiteSpace(option.Value))
@@ -3054,13 +3527,17 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             {
                 var value = NormalizeModelValue(option.Value);
                 var label = string.IsNullOrWhiteSpace(option.Label) ? value : option.Label.Trim();
-                return new SelectionOption(label, value);
+                return new CodexModelOption(
+                    label,
+                    value,
+                    option.DefaultReasoningEffort,
+                    option.SupportedReasoningEfforts);
             })
             .Where(option => !string.IsNullOrWhiteSpace(option.Value))
-            ?? Enumerable.Empty<SelectionOption>();
+            ?? Enumerable.Empty<CodexModelOption>();
     }
 
-    private void ReplaceModelOptions(IEnumerable<SelectionOption> options)
+    private void ReplaceModelOptions(IEnumerable<CodexModelOption> options)
     {
         ModelOptions.Clear();
         foreach (var option in options)
@@ -3069,7 +3546,9 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         }
 
         EnsureSelectedModelOption(SelectedModel);
+        EnsureSelectedReasoningEffortIsSupported();
         OnPropertyChanged(nameof(SelectedModelLabel));
+        NotifyReasoningOptionsChanged();
     }
 
     private void EnsureSelectedModelOption(string? model)
@@ -3081,7 +3560,54 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        ModelOptions.Add(new SelectionOption(value + " (custom)", value));
+        ModelOptions.Add(new CodexModelOption(value + " (custom)", value));
+    }
+
+    private CodexModelOption? GetSelectedModelOption()
+    {
+        var selected = NormalizeModelValue(SelectedModel);
+        return ModelOptions.FirstOrDefault(option =>
+            string.Equals(option.Value, selected, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private IEnumerable<string> GetApplicableCustomReasoningEfforts(CodexModelOption? model)
+    {
+        var customEfforts = Settings.CustomReasoningEfforts ?? new List<string>();
+        if (model is null || !model.HasReasoningEffortMetadata)
+        {
+            return customEfforts;
+        }
+
+        var supported = new HashSet<string>(model.SupportedReasoningEfforts, StringComparer.OrdinalIgnoreCase);
+        return customEfforts.Where(entry =>
+        {
+            var option = ParseManualSelectionOption(entry);
+            var value = NormalizeReasoningEffortValue(option?.Value);
+            return !string.IsNullOrWhiteSpace(value) && supported.Contains(value);
+        }).ToArray();
+    }
+
+    private bool EnsureSelectedReasoningEffortIsSupported()
+    {
+        var resolved = CodexModelCatalog.ResolveReasoningEffort(
+            GetSelectedModelOption(),
+            _selectedReasoningEffort);
+        if (string.Equals(_selectedReasoningEffort, resolved, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        _selectedReasoningEffort = resolved;
+        Settings.ReasoningEffort = resolved;
+        OnPropertyChanged(nameof(SelectedReasoningEffort));
+        return true;
+    }
+
+    private void NotifyReasoningOptionsChanged()
+    {
+        OnPropertyChanged(nameof(ReasoningOptions));
+        OnPropertyChanged(nameof(ReasoningMenuOptions));
+        OnPropertyChanged(nameof(SelectedReasoningEffortLabel));
     }
 
     private void AddCustomModelToSettings(string model)
@@ -3123,7 +3649,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         try
         {
             var threads = await _codexProcessService.ListThreadsAsync(Settings, CancellationToken.None).ConfigureAwait(false);
-            RunOnUiThread(() =>
+            await RunOnUiThreadAsync(() =>
             {
                 var selectedThreadId = preferredThreadId ?? SelectedThread?.ThreadId ?? Settings.CurrentThreadId;
                 var editingThreadId = EditingThreadId;
@@ -3168,7 +3694,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             var rateLimitsTask = GetRateLimitsSafeAsync();
             await Task.WhenAll(appsTask, mcpTask, skillsTask, remoteSkillsTask, rateLimitsTask).ConfigureAwait(false);
 
-            RunOnUiThread(() =>
+            await RunOnUiThreadAsync(() =>
             {
                 Apps.Clear();
                 foreach (var app in appsTask.Result)
@@ -3257,11 +3783,11 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             Settings.LastThreadWorkingDirectory = Settings.WorkingDirectory;
             SaveSettings();
 
-            RunOnUiThread(() =>
+            await RunOnUiThreadAsync(() =>
             {
                 _currentAssistantMessage = null;
                 _currentPlanMessage = null;
-                Messages.ReplaceAll(conversation.Messages.Select(CreateDisplayMessage));
+                Messages.ReplaceAll(LimitConversationMessagesForDisplay(conversation.Messages).Select(CreateDisplayMessage));
 
                 Output = string.Empty;
                 CloseSidebar();
@@ -3276,6 +3802,19 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
                 AppendOutput(_localization.LoadTopicsErrorPrefix + ex.Message + Environment.NewLine);
             }
         }
+    }
+
+    private IEnumerable<ChatMessage> LimitConversationMessagesForDisplay(IReadOnlyList<ChatMessage> messages)
+    {
+        if (messages.Count <= MaxDisplayedConversationMessages)
+        {
+            return messages;
+        }
+
+        var hiddenCount = messages.Count - MaxDisplayedConversationMessages;
+        var visibleMessages = messages.Skip(hiddenCount);
+        return new[] { new ChatMessage(false, _localization.OmittedConversationMessageText, isEvent: true, title: _localization.ConversationTrimmedTitle) }
+            .Concat(visibleMessages);
     }
 
     private void StartNewThread()
@@ -3320,7 +3859,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             CloseSidebar();
         });
 
-        ThreadHelper.JoinableTaskFactory.RunAsync(() => RefreshThreadsAsync(null));
+        RefreshThreadsAsync(null).FileAndForget("CodexVsix/RefreshThreads");
     }
 
     private void DismissRecentTasksPreview()
@@ -3367,13 +3906,13 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        ThreadHelper.JoinableTaskFactory.RunAsync(async delegate
+        RunDetached(async delegate
         {
             try
             {
                 await _codexProcessService.RenameThreadAsync(Settings, selectedThread.ThreadId, newName!, CancellationToken.None).ConfigureAwait(false);
                 await RefreshThreadsAsync(selectedThread.ThreadId).ConfigureAwait(false);
-                RunOnUiThread(() =>
+                await RunOnUiThreadAsync(() =>
                 {
                     EditingThreadId = string.Empty;
                     RenameThreadName = SelectedThread?.Title ?? string.Empty;
@@ -3383,7 +3922,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             {
                 AppendOutput(_localization.LoadTopicsErrorPrefix + ex.Message + Environment.NewLine);
             }
-        });
+        }, "CodexVsix/RenameThread");
     }
 
     private void CancelRenameThread(object? parameter)
@@ -3426,7 +3965,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        ThreadHelper.JoinableTaskFactory.RunAsync(async delegate
+        RunDetached(async delegate
         {
             try
             {
@@ -3440,7 +3979,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
                     _codexProcessService.ResetThread();
                     SaveSettings();
 
-                    RunOnUiThread(() =>
+                    await RunOnUiThreadAsync(() =>
                     {
                         _suppressThreadSelection = true;
                         SelectedThread = null;
@@ -3458,30 +3997,33 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             {
                 AppendOutput(_localization.LoadTopicsErrorPrefix + ex.Message + Environment.NewLine);
             }
-        });
+        }, "CodexVsix/DeleteThread");
     }
 
     private void HandleThreadCatalogChanged()
     {
-        ThreadHelper.JoinableTaskFactory.RunAsync(() => RefreshThreadsAsync(Settings.CurrentThreadId));
+        RefreshThreadsAsync(Settings.CurrentThreadId).FileAndForget("CodexVsix/ThreadCatalogChanged");
     }
 
-    private static IEnumerable<SelectionOption> CreateFallbackModelOptions()
-    {
-        return new[]
-        {
-            new SelectionOption("GPT-5.4", "gpt-5.4"),
-            new SelectionOption("GPT-5.2 Codex", "gpt-5.2-codex"),
-            new SelectionOption("GPT-5.2", "gpt-5.2"),
-            new SelectionOption("GPT-5", "gpt-5")
-        };
-    }
+    private static IEnumerable<CodexModelOption> CreateFallbackModelOptions() =>
+        CodexModelCatalog.CreateFallbackOptions();
 
     private void RefreshMentions()
     {
-        var mention = ExtractCurrentMention(PromptEditorText);
+        if (!ThreadHelper.CheckAccess())
+        {
+            RunOnUiThread(RefreshMentions);
+            return;
+        }
+
+        var mention = TryGetCurrentMention(PromptEditorText, out _, out _, out var query)
+            ? query
+            : string.Empty;
         CurrentMentionQuery = mention;
         MentionSuggestions.Clear();
+        _mentionSearchCts?.Cancel();
+        _mentionSearchCts?.Dispose();
+        _mentionSearchCts = null;
 
         if (string.IsNullOrWhiteSpace(mention))
         {
@@ -3489,16 +4031,41 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        ThreadHelper.JoinableTaskFactory.RunAsync(async delegate
+        var searchVersion = Interlocked.Increment(ref _mentionSearchVersion);
+        var searchCts = new CancellationTokenSource();
+        _mentionSearchCts = searchCts;
+        RunDetached(async delegate
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            foreach (var file in _solutionContextService.FindSolutionFiles(mention))
+            try
             {
-                MentionSuggestions.Add(file);
-            }
+                await Task.Delay(140, searchCts.Token).ConfigureAwait(false);
+                var files = await _solutionContextService.FindSolutionFilesAsync(
+                    Settings.WorkingDirectory,
+                    mention,
+                    searchCts.Token).ConfigureAwait(false);
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(searchCts.Token);
+                if (searchVersion != Interlocked.Read(ref _mentionSearchVersion)
+                    || !string.Equals(CurrentMentionQuery, mention, StringComparison.Ordinal))
+                {
+                    return;
+                }
 
-            OnPropertyChanged(nameof(HasMentionSuggestions));
-        });
+                MentionSuggestions.Clear();
+                foreach (var file in files)
+                {
+                    MentionSuggestions.Add(file);
+                }
+
+                OnPropertyChanged(nameof(HasMentionSuggestions));
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                AppendOutput("[mentions] " + ex.Message + Environment.NewLine);
+            }
+        }, "CodexVsix/MentionSearch");
     }
 
     private void RefreshDetectedPromptSkills()
@@ -3513,20 +4080,16 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        var mention = ExtractCurrentMention(PromptEditorText);
-        if (string.IsNullOrWhiteSpace(mention))
+        if (!TryGetCurrentMention(PromptEditorText, out var startIndex, out var length, out _))
         {
             return;
         }
 
-        var suffix = "@" + mention;
-        var idx = PromptEditorText.LastIndexOf(suffix, StringComparison.OrdinalIgnoreCase);
-        if (idx < 0)
-        {
-            return;
-        }
-
-        PromptEditorText = PromptEditorText.Substring(0, idx) + "@" + SelectedMention + " " + PromptEditorText.Substring(idx + suffix.Length);
+        var formattedMention = FormatMention(SelectedMention!);
+        PromptEditorText = PromptEditorText.Substring(0, startIndex)
+            + formattedMention
+            + " "
+            + PromptEditorText.Substring(startIndex + length);
         MentionSuggestions.Clear();
         CurrentMentionQuery = string.Empty;
     }
@@ -3546,7 +4109,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         var prompt = BuildApprovalPrompt(request);
         var decisionTcs = new TaskCompletionSource<JToken?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        RunOnUiThread(() =>
+        await RunOnUiThreadAsync(() =>
         {
             _approvalDecisionTcs = decisionTcs;
             CurrentApprovalPrompt = prompt;
@@ -3560,7 +4123,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         var prompt = BuildUserInputPrompt(request);
         var decisionTcs = new TaskCompletionSource<JObject?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        RunOnUiThread(() =>
+        await RunOnUiThreadAsync(() =>
         {
             _userInputDecisionTcs = decisionTcs;
             CurrentUserInputPrompt = prompt;
@@ -3574,6 +4137,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         var prompt = new ApprovalPromptViewModel
         {
             Title = string.Equals(request.Method, "item/fileChange/requestApproval", StringComparison.Ordinal)
+                || string.Equals(request.Method, "applyPatchApproval", StringComparison.Ordinal)
                 ? _localization.ApprovalFileChangeTitle
                 : _localization.ApprovalCommandTitle,
             Subtitle = request.ProposedExecpolicyLabel,
@@ -3635,7 +4199,9 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
             foreach (var option in question.Options)
             {
-                item.Options.Add(new SelectionOption(option.Label, option.Label));
+                item.Options.Add(new SelectionOption(
+                    option.Label,
+                    string.IsNullOrWhiteSpace(option.Value) ? option.Label : option.Value));
             }
 
             if (!item.AcceptsText && item.Options.Count > 0)
@@ -3661,7 +4227,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
     private void HandleAccountUpdated()
     {
-        ThreadHelper.JoinableTaskFactory.RunAsync(async delegate
+        RunDetached(async delegate
         {
             if (!IsCodexReady)
             {
@@ -3669,7 +4235,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             }
 
             await RefreshServerSurfacesAsync(forceSkillReload: false).ConfigureAwait(false);
-        });
+        }, "CodexVsix/AccountUpdated");
     }
 
     private void HandleThreadsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -3799,7 +4365,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
             answers[question.Id] = new JObject
             {
-                ["answers"] = new JArray(answer)
+                ["answers"] = new JArray(answer!)
             };
         }
 
@@ -3829,18 +4395,67 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        Settings.PromptHistory.RemoveAll(p => string.Equals(p, prompt, StringComparison.Ordinal));
-        Settings.PromptHistory.Add(prompt);
-        while (Settings.PromptHistory.Count > 50)
-        {
-            Settings.PromptHistory.RemoveAt(0);
-        }
+        var historyEntry = CreatePromptHistoryEntry(prompt);
+        Settings.PromptHistory.RemoveAll(p => string.Equals(p, historyEntry, StringComparison.Ordinal));
+        Settings.PromptHistory.Add(historyEntry);
+        TrimPromptHistory();
 
         PromptHistory.Clear();
         foreach (var item in GetRecentPromptHistory())
         {
             PromptHistory.Add(item);
         }
+    }
+
+    private void TrimPromptHistory()
+    {
+        Settings.PromptHistory = Settings.PromptHistory
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(CreatePromptHistoryEntry)
+            .ToList();
+
+        while (Settings.PromptHistory.Count > MaxPromptHistoryEntries)
+        {
+            Settings.PromptHistory.RemoveAt(0);
+        }
+
+        while (Settings.PromptHistory.Sum(item => item.Length) > MaxPromptHistoryTotalCharacters
+            && Settings.PromptHistory.Count > 1)
+        {
+            Settings.PromptHistory.RemoveAt(0);
+        }
+    }
+
+    private void ClearPromptHistory()
+    {
+        Settings.PromptHistory.Clear();
+        PromptHistory.Clear();
+        SaveSettings(mergePromptHistory: false);
+    }
+
+    private void CompactCurrentConversation()
+    {
+        var threadId = Settings.CurrentThreadId;
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return;
+        }
+
+        RunDetached(async delegate
+        {
+            try
+            {
+                await _codexProcessService.InvokeAppServerRequestAsync(
+                    Settings,
+                    "thread/compact/start",
+                    new JObject { ["threadId"] = threadId },
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                AppendOutput("[compact] " + ex.Message + Environment.NewLine);
+            }
+        }, "CodexVsix/CompactConversation");
     }
 
     private System.Collections.Generic.IEnumerable<string> GetRecentPromptHistory()
@@ -3850,9 +4465,22 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         return promptHistory.Skip(skip).Reverse();
     }
 
+    private string CreatePromptHistoryEntry(string prompt)
+    {
+        var normalized = (prompt ?? string.Empty).Trim();
+        if (normalized.Length <= MaxPromptHistoryEntryLength)
+        {
+            return normalized;
+        }
+
+        return normalized.Substring(0, MaxPromptHistoryEntryLength).TrimEnd()
+            + Environment.NewLine + Environment.NewLine
+            + _localization.PromptHistoryTruncationNotice;
+    }
+
     private void AddUserMessage(string text)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        RunOnUiThread(() =>
         {
             Messages.Add(CreateDisplayMessage(true, text));
         });
@@ -3860,7 +4488,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
     private void AddAssistantMessage(string text)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        RunOnUiThread(() =>
         {
             Messages.Add(CreateDisplayMessage(false, text));
         });
@@ -3868,7 +4496,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
     private void AddRuntimeEventMessage(ChatMessage message)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        RunOnUiThread(() =>
         {
             if (IsPlanEvent(message))
             {
@@ -3931,23 +4559,17 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             return;
         }
 
-        _ = Task.Run(async () =>
+        Task.Run(async () =>
         {
             await Task.Delay(AssistantOutputFlushDelayMilliseconds).ConfigureAwait(false);
             await FlushPendingAssistantOutputAsync().ConfigureAwait(false);
-        });
+        }).FileAndForget("CodexVsix/FlushAssistantOutput");
     }
 
-    private Task FlushPendingAssistantOutputAsync()
+    private async Task FlushPendingAssistantOutputAsync()
     {
-        var dispatcher = Application.Current.Dispatcher;
-        if (dispatcher.CheckAccess())
-        {
-            FlushPendingAssistantOutput();
-            return Task.CompletedTask;
-        }
-
-        return dispatcher.InvokeAsync(FlushPendingAssistantOutput, System.Windows.Threading.DispatcherPriority.Background).Task;
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        FlushPendingAssistantOutput();
     }
 
     private void FlushPendingAssistantOutput()
@@ -4292,84 +4914,73 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
             || extension.Equals(".gif", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string FormatCompactTokenCount(double tokens)
+    private string FormatCompactTokenCount(double tokens)
     {
         if (tokens >= 1000d)
         {
-            return (tokens / 1000d).ToString("0.#", CultureInfo.CurrentUICulture) + "k";
+            return (tokens / 1000d).ToString("0.#", _localization.Culture) + "k";
         }
 
-        return Math.Round(tokens).ToString(CultureInfo.CurrentUICulture);
+        return Math.Round(tokens).ToString(_localization.Culture);
     }
 
-    private static string FormatPercent(double value)
+    private string FormatPercent(double value)
     {
-        return Math.Round(value * 100d).ToString("0", CultureInfo.CurrentUICulture) + "%";
+        return Math.Round(value * 100d).ToString("0", _localization.Culture) + "%";
     }
 
-    private static string ExtractCurrentMention(string prompt)
+    private static bool TryGetCurrentMention(string prompt, out int startIndex, out int length, out string query)
     {
-        if (string.IsNullOrWhiteSpace(prompt))
+        startIndex = -1;
+        length = 0;
+        query = string.Empty;
+        if (string.IsNullOrEmpty(prompt))
         {
-            return string.Empty;
+            return false;
         }
 
-        var atIndex = prompt.LastIndexOf('@');
-        if (atIndex < 0)
+        for (var atIndex = prompt.LastIndexOf('@'); atIndex >= 0; atIndex = prompt.LastIndexOf('@', atIndex - 1))
         {
-            return string.Empty;
-        }
-
-        var tail = prompt.Substring(atIndex + 1);
-        if (tail.Contains(" ") || tail.Contains(Environment.NewLine))
-        {
-            return string.Empty;
-        }
-
-        return tail.Trim();
-    }
-
-    private static IReadOnlyList<string> ExtractPromptSkillNames(string prompt)
-    {
-        var detectedNames = new List<string>();
-        if (string.IsNullOrWhiteSpace(prompt))
-        {
-            return detectedNames;
-        }
-
-        var uniqueNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        for (var index = 0; index < prompt.Length; index++)
-        {
-            if (prompt[index] != '/')
+            if (atIndex > 0 && !char.IsWhiteSpace(prompt[atIndex - 1]))
             {
                 continue;
             }
 
-            if (index > 0 && !char.IsWhiteSpace(prompt[index - 1]))
+            var quoted = atIndex + 1 < prompt.Length && prompt[atIndex + 1] == '"';
+            var valueStart = atIndex + (quoted ? 2 : 1);
+            var tail = prompt.Substring(valueStart);
+            if (tail.IndexOfAny(new[] { '\r', '\n' }) >= 0)
             {
                 continue;
             }
 
-            var start = index + 1;
-            var end = start;
-            while (end < prompt.Length && IsSkillNameCharacter(prompt[end]))
+            if (quoted)
             {
-                end++;
+                if (tail.Contains("\""))
+                {
+                    continue;
+                }
             }
-
-            if (end <= start)
+            else if (tail.Any(char.IsWhiteSpace))
             {
                 continue;
             }
 
-            var skillName = prompt.Substring(start, end - start);
-            if (uniqueNames.Add(skillName))
-            {
-                detectedNames.Add(skillName);
-            }
+            startIndex = atIndex;
+            length = prompt.Length - atIndex;
+            query = tail.Trim();
+            return !string.IsNullOrWhiteSpace(query);
         }
 
-        return detectedNames;
+        return false;
+    }
+
+    private static string FormatMention(string path)
+    {
+        var normalized = (path ?? string.Empty).Replace('\\', '/');
+        return normalized.Any(char.IsWhiteSpace)
+            ? "@\"" + normalized.Replace("\"", "\\\"") + "\""
+            : "@" + normalized;
     }
 
     private static (IReadOnlyList<string> SkillNames, string DisplayText) FormatPromptSkillDisplay(string prompt, ISet<string> availableSkillNames, bool preserveWhitespace = false)
@@ -4483,10 +5094,53 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         return path;
     }
 
+    private static void CleanupStaleTempImages()
+    {
+        try
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "CodexVsixImages");
+            if (!Directory.Exists(directory))
+            {
+                return;
+            }
+
+            var cutoff = DateTime.UtcNow.AddDays(-1);
+            foreach (var file in Directory.EnumerateFiles(directory, "clipboard_*.png", SearchOption.TopDirectoryOnly))
+            {
+                try
+                {
+                    if (File.GetLastWriteTimeUtc(file) < cutoff)
+                    {
+                        File.Delete(file);
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+        catch
+        {
+        }
+    }
+
     private void AppendOutput(string text)
     {
-        RunOnUiThread(() => _output += text);
-        RunOnUiThread(() => OnPropertyChanged(nameof(Output)));
+        RunOnUiThread(() =>
+        {
+            _output = TrimRawOutput(_output + text);
+            OnPropertyChanged(nameof(Output));
+        });
+    }
+
+    private static string TrimRawOutput(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= MaxRawOutputCharacters)
+        {
+            return value;
+        }
+
+        return value.Substring(value.Length - MaxRawOutputCharacters);
     }
 
     private long CaptureConversationStateVersion()
@@ -4505,6 +5159,22 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         return CaptureConversationStateVersion() == version;
     }
 
+    private sealed class PendingSubmission
+    {
+        public PendingSubmission(string prompt, IReadOnlyList<string> imagePaths, IReadOnlyList<string> ownedTempImagePaths)
+        {
+            Prompt = prompt ?? string.Empty;
+            ImagePaths = imagePaths ?? Array.Empty<string>();
+            OwnedTempImagePaths = ownedTempImagePaths ?? Array.Empty<string>();
+        }
+
+        public string Prompt { get; }
+
+        public IReadOnlyList<string> ImagePaths { get; }
+
+        public IReadOnlyList<string> OwnedTempImagePaths { get; }
+    }
+
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -4512,13 +5182,30 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
 
     private static void RunOnUiThread(Action action)
     {
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is null || dispatcher.CheckAccess())
+        if (ThreadHelper.CheckAccess())
         {
             action();
             return;
         }
 
-        dispatcher.Invoke(action);
+        RunOnUiThreadAsync(action).FileAndForget("CodexVsix/UIUpdate");
+    }
+
+    private static async Task RunOnUiThreadAsync(Action action)
+    {
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        action();
+    }
+
+    private static void RunDetached(Func<Task> operation, string operationName)
+    {
+        try
+        {
+            operation().FileAndForget(operationName);
+        }
+        catch (Exception ex)
+        {
+            ActivityLog.TryLogError("CodexVsix", operationName + Environment.NewLine + ex);
+        }
     }
 }

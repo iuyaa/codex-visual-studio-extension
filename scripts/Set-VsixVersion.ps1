@@ -46,6 +46,15 @@ function Save-Utf8Xml {
     }
 }
 
+$propsPath = Join-Path $repoRoot "Directory.Build.props"
+[xml]$props = Get-Content -LiteralPath $propsPath -Raw -Encoding UTF8
+$versionNode = $props.SelectSingleNode("/Project/PropertyGroup/Version")
+if (-not $versionNode) {
+    throw "Não foi possível localizar Version em Directory.Build.props."
+}
+$versionNode.InnerText = $Version
+Save-Utf8Xml -Path $propsPath -Xml $props
+
 $sourceManifestPath = Join-Path $repoRoot "CodexVsix\source.extension.vsixmanifest"
 [xml]$sourceManifest = Get-Content -LiteralPath $sourceManifestPath -Raw -Encoding UTF8
 $vsixNs = New-Object System.Xml.XmlNamespaceManager($sourceManifest.NameTable)
@@ -67,9 +76,3 @@ if (-not $legacyVersionNode) {
 }
 $legacyVersionNode.InnerText = $Version
 Save-Utf8Xml -Path $legacyManifestPath -Xml $legacyManifest
-
-$assemblyInfoPath = Join-Path $repoRoot "CodexVsix\Properties\AssemblyInfo.cs"
-$assemblyInfo = Get-Content -LiteralPath $assemblyInfoPath -Raw -Encoding UTF8
-$assemblyInfo = [regex]::Replace($assemblyInfo, 'AssemblyVersion\("([^"]+)"\)', "AssemblyVersion(`"$AssemblyVersion`")")
-$assemblyInfo = [regex]::Replace($assemblyInfo, 'AssemblyFileVersion\("([^"]+)"\)', "AssemblyFileVersion(`"$AssemblyVersion`")")
-[System.IO.File]::WriteAllText($assemblyInfoPath, $assemblyInfo, $utf8NoBom)

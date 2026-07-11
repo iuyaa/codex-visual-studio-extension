@@ -99,7 +99,7 @@ public sealed class CodexEnvironmentService
             Process.Start(new ProcessStartInfo
             {
                 FileName = ResolvePowerShellHost(),
-                Arguments = "-NoExit -ExecutionPolicy Bypass -File " + QuoteArgument(executablePath) + " login",
+                Arguments = "-NoExit -ExecutionPolicy Bypass -File " + CodexAppServerCommandLine.QuoteArgument(executablePath) + " login",
                 UseShellExecute = true
             });
             return;
@@ -280,7 +280,7 @@ public sealed class CodexEnvironmentService
                 method = "initialize",
                 @params = new
                 {
-                    clientInfo = new { name = "codex-vsix", version = "1.0" },
+                    clientInfo = new { name = "codex-vsix", version = ExtensionInfo.Version },
                     capabilities = new { experimentalApi = true }
                 }
             }).ConfigureAwait(false);
@@ -330,7 +330,9 @@ public sealed class CodexEnvironmentService
 
     private static async Task WriteJsonRpcMessageAsync(StreamWriter writer, object payload)
     {
-        var json = JObject.FromObject(payload).ToString(Newtonsoft.Json.Formatting.None);
+        var json = NewtonsoftJsonCompatibility.Serialize(
+            JObject.FromObject(payload),
+            Newtonsoft.Json.Formatting.None);
         await writer.WriteLineAsync(json).ConfigureAwait(false);
         await writer.FlushAsync().ConfigureAwait(false);
     }
@@ -375,6 +377,7 @@ public sealed class CodexEnvironmentService
         var completedTask = await Task.WhenAny(readTask, timeoutTask).ConfigureAwait(false);
         if (completedTask != readTask)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             return null;
         }
 
@@ -388,7 +391,7 @@ public sealed class CodexEnvironmentService
             return new ProcessStartInfo
             {
                 FileName = ResolvePowerShellHost(),
-                Arguments = "-NoProfile -ExecutionPolicy Bypass -File " + QuoteArgument(executablePath) + (string.IsNullOrWhiteSpace(arguments) ? string.Empty : " " + arguments),
+                Arguments = "-NoProfile -ExecutionPolicy Bypass -File " + CodexAppServerCommandLine.QuoteArgument(executablePath) + (string.IsNullOrWhiteSpace(arguments) ? string.Empty : " " + arguments),
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -436,7 +439,7 @@ public sealed class CodexEnvironmentService
             {
                 FileName = ResolvePowerShellHost(),
                 WorkingDirectory = workingDirectory,
-                Arguments = "-NoProfile -ExecutionPolicy Bypass -File " + QuoteArgument(executablePath) + (string.IsNullOrWhiteSpace(arguments) ? string.Empty : " " + arguments),
+                Arguments = "-NoProfile -ExecutionPolicy Bypass -File " + CodexAppServerCommandLine.QuoteArgument(executablePath) + (string.IsNullOrWhiteSpace(arguments) ? string.Empty : " " + arguments),
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -487,32 +490,7 @@ public sealed class CodexEnvironmentService
 
     private static string BuildServerProbeArguments(CodexExtensionSettings settings)
     {
-        var args = new List<string> { "app-server", "--listen", "stdio://" };
-
-        if (!HasProfileArgument(settings.AdditionalArguments) && !string.IsNullOrWhiteSpace(settings.Profile))
-        {
-            args.Add("--profile");
-            args.Add(settings.Profile.Trim());
-        }
-
-        if (!string.IsNullOrWhiteSpace(settings.RawTomlOverrides))
-        {
-            foreach (var line in settings.RawTomlOverrides.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                args.Add("-c");
-                args.Add(line.Trim());
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(settings.AdditionalArguments))
-        {
-            foreach (var token in SplitArguments(settings.AdditionalArguments))
-            {
-                args.Add(token);
-            }
-        }
-
-        return JoinArguments(args);
+        return CodexAppServerCommandLine.Build(settings);
     }
 
     private static async Task<bool> WaitForExitAsync(Process process, int timeoutMilliseconds, CancellationToken cancellationToken)
@@ -912,7 +890,7 @@ public sealed class CodexEnvironmentService
     private static string GetProfileArgument(string? commandLine)
     {
         var awaitingProfileValue = false;
-        foreach (var token in SplitArguments(commandLine ?? string.Empty))
+        foreach (var token in CodexAppServerCommandLine.SplitArguments(commandLine ?? string.Empty))
         {
             if (awaitingProfileValue)
             {
@@ -935,69 +913,11 @@ public sealed class CodexEnvironmentService
         return string.Empty;
     }
 
-    private static bool HasProfileArgument(string? commandLine)
-    {
-        return !string.IsNullOrWhiteSpace(GetProfileArgument(commandLine));
-    }
-
-    private static IEnumerable<string> SplitArguments(string commandLine)
-    {
-        var current = new StringBuilder();
-        var inQuotes = false;
-
-        foreach (var ch in commandLine)
-        {
-            if (ch == '"')
-            {
-                inQuotes = !inQuotes;
-                continue;
-            }
-
-            if (char.IsWhiteSpace(ch) && !inQuotes)
-            {
-                if (current.Length > 0)
-                {
-                    yield return current.ToString();
-                    current.Clear();
-                }
-
-                continue;
-            }
-
-            current.Append(ch);
-        }
-
-        if (current.Length > 0)
-        {
-            yield return current.ToString();
-        }
-    }
-
-    private static string JoinArguments(IEnumerable<string> args)
-    {
-        return string.Join(" ", args.Select(QuoteCommandLineArgument));
-    }
-
-    private static string QuoteCommandLineArgument(string value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return "\"\"";
-        }
-
-        if (!value.Any(ch => char.IsWhiteSpace(ch) || ch == '"' || ch == '\\'))
-        {
-            return value;
-        }
-
-        return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
-    }
-
     private static string ResolveWorkingDirectory(string? workingDirectory)
     {
         if (!string.IsNullOrWhiteSpace(workingDirectory) && Directory.Exists(workingDirectory))
         {
-            return workingDirectory;
+            return workingDirectory!;
         }
 
         return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -1161,11 +1081,6 @@ public sealed class CodexEnvironmentService
         return File.Exists(windowsPowerShell)
             ? windowsPowerShell
             : "powershell.exe";
-    }
-
-    private static string QuoteArgument(string value)
-    {
-        return "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\"";
     }
 
     private sealed class AuthFileInspection

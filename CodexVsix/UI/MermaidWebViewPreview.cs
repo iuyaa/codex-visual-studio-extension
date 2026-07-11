@@ -13,6 +13,7 @@ using System.Windows.Threading;
 using CodexVsix.Services;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
+using Newtonsoft.Json;
 
 namespace CodexVsix.UI;
 
@@ -24,7 +25,6 @@ internal sealed class MermaidWebViewPreview : Grid
     private const string MermaidAssetsHostName = "appassets.codexvsix.local";
     private const int MermaidBootstrapTimeoutMs = 8000;
     private static readonly Lazy<string> MermaidBundle = new(LoadMermaidBundle);
-    private static readonly Lazy<string> MermaidHostHtml = new(BuildHostHtml);
     private readonly string _code;
     private readonly WebView2 _webView;
     private readonly Image _snapshotImage;
@@ -33,8 +33,8 @@ internal sealed class MermaidWebViewPreview : Grid
     private readonly DispatcherTimer _bootstrapTimer;
     private readonly LocalizationService _localization;
     private bool _isInitialized;
-    private bool _snapshotRequested;
     private bool _isDisposed;
+    private bool _isFreezing;
     private bool _renderReady;
     private bool _hasTerminalState;
 
@@ -125,6 +125,12 @@ internal sealed class MermaidWebViewPreview : Grid
         if (_snapshotImage.Source is not null || _hasTerminalState)
         {
             DisposeWebView();
+            return;
+        }
+
+        if (_renderReady)
+        {
+            _ = FreezePreviewAsync();
         }
     }
 
@@ -142,6 +148,7 @@ internal sealed class MermaidWebViewPreview : Grid
             var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
             await _webView.EnsureCoreWebView2Async(environment);
             _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+            _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
             _webView.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
             _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
@@ -150,7 +157,7 @@ internal sealed class MermaidWebViewPreview : Grid
             _webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 MermaidAssetsHostName,
                 assetsFolder,
-                CoreWebView2HostResourceAccessKind.Allow);
+                CoreWebView2HostResourceAccessKind.DenyCors);
             ResetBootstrapTimer();
             _webView.CoreWebView2.Navigate(BuildPreviewUri(_code));
         }
@@ -168,12 +175,33 @@ internal sealed class MermaidWebViewPreview : Grid
             return;
         }
 
-        Fail(string.Format(CultureInfo.CurrentUICulture, _localization.MermaidLoadFailedFormat, e.WebErrorStatus));
+        Fail(string.Format(_localization.Culture, _localization.MermaidLoadFailedFormat, e.WebErrorStatus));
+    }
+
+    private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+    {
+        if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri)
+            || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(uri.Host, MermaidAssetsHostName, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(uri.AbsolutePath, "/" + MermaidHostFileName, StringComparison.OrdinalIgnoreCase))
+        {
+            e.Cancel = true;
+        }
     }
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        if (!Uri.TryCreate(e.Source, UriKind.Absolute, out var source)
+            || !string.Equals(source.Host, MermaidAssetsHostName, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         var message = e.TryGetWebMessageAsString() ?? string.Empty;
+        if (message.Length > 4096)
+        {
+            return;
+        }
         if (message.StartsWith("height:", StringComparison.Ordinal))
         {
             var rawHeight = message.Substring("height:".Length);
@@ -194,6 +222,7 @@ internal sealed class MermaidWebViewPreview : Grid
             _webView.Visibility = Visibility.Visible;
             _webView.SetValue(UIElement.OpacityProperty, 1d);
             _webView.IsHitTestVisible = true;
+            _ = FreezePreviewAsync();
 
             return;
         }
@@ -203,7 +232,7 @@ internal sealed class MermaidWebViewPreview : Grid
             var detail = message.Substring("error:".Length).Trim();
             Fail(string.IsNullOrWhiteSpace(detail)
                 ? _localization.MermaidRenderFailed
-                : string.Format(CultureInfo.CurrentUICulture, _localization.MermaidRenderFailedFormat, detail));
+                : string.Format(_localization.Culture, _localization.MermaidRenderFailedFormat, detail));
         }
     }
 
@@ -219,6 +248,12 @@ internal sealed class MermaidWebViewPreview : Grid
 
     private async Task FreezePreviewAsync()
     {
+        if (_isFreezing)
+        {
+            return;
+        }
+
+        _isFreezing = true;
         try
         {
             if (_isDisposed || _webView.CoreWebView2 is null)
@@ -248,14 +283,12 @@ internal sealed class MermaidWebViewPreview : Grid
         }
         catch (Exception ex)
         {
-            if (!IsLoaded && !_isDisposed)
-            {
-                _snapshotRequested = false;
-                return;
-            }
-
             Trace.WriteLine(ex);
             Fail(_localization.MermaidFreezeFailed);
+        }
+        finally
+        {
+            _isFreezing = false;
         }
     }
 
@@ -271,6 +304,7 @@ internal sealed class MermaidWebViewPreview : Grid
         if (_webView.CoreWebView2 is not null)
         {
             _webView.CoreWebView2.WebMessageReceived -= OnWebMessageReceived;
+            _webView.CoreWebView2.NavigationStarting -= OnNavigationStarting;
             _webView.CoreWebView2.NavigationCompleted -= OnNavigationCompleted;
         }
 
@@ -343,13 +377,14 @@ internal sealed class MermaidWebViewPreview : Grid
         return $"https://{MermaidAssetsHostName}/{MermaidHostFileName}?code={encoded}";
     }
 
-    private static string BuildHostHtml()
+    internal static string BuildHostHtml(LocalizationService localization)
     {
         const string htmlTemplate = """
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'nonce-codexvsix'; style-src 'self' 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
   <style>
     html, body {
       margin: 0;
@@ -393,7 +428,7 @@ internal sealed class MermaidWebViewPreview : Grid
   <div id="root"></div>
   <div id="error"></div>
   <script src="./mermaid.min.js"></script>
-  <script>
+  <script nonce="codexvsix">
     const root = document.getElementById('root');
     const errorNode = document.getElementById('error');
     let observer = null;
@@ -522,7 +557,7 @@ internal sealed class MermaidWebViewPreview : Grid
     }
 
     window.addEventListener('error', (event) => {
-      const detail = event?.error?.message || event?.message || '__MERMAID_SCRIPT_ERROR__';
+      const detail = event?.error?.message || event?.message || __MERMAID_SCRIPT_ERROR__;
       fail(detail);
     });
     window.addEventListener('resize', () => scheduleHeightSync(1200));
@@ -537,7 +572,7 @@ internal sealed class MermaidWebViewPreview : Grid
 
         mermaid.initialize({
           startOnLoad: false,
-          securityLevel: 'loose',
+          securityLevel: 'strict',
           theme: 'base',
           themeVariables: {
             background: 'transparent',
@@ -581,10 +616,12 @@ internal sealed class MermaidWebViewPreview : Grid
         isFinished = true;
         window.clearTimeout(timeoutId);
         watchHeight();
+        lastHeight = measureHeight();
+        postMessage(`height:${lastHeight}`);
         scheduleHeightSync(2000);
         postMessage('ready');
       } catch (error) {
-        const detail = error?.message || '__MERMAID_RENDER_FAILED__';
+        const detail = error?.message || __MERMAID_RENDER_FAILED__;
         fail(detail);
       }
     })();
@@ -595,11 +632,11 @@ internal sealed class MermaidWebViewPreview : Grid
 
         return htmlTemplate
             .Replace("__BOOTSTRAP_TIMEOUT_MS__", MermaidBootstrapTimeoutMs.ToString(CultureInfo.InvariantCulture))
-            .Replace("__MERMAID_SCRIPT_ERROR__", new LocalizationService().MermaidPreviewScriptError)
-            .Replace("__MERMAID_RENDER_FAILED__", new LocalizationService().MermaidRenderFailed);
+            .Replace("__MERMAID_SCRIPT_ERROR__", JsonConvert.SerializeObject(localization.MermaidPreviewScriptError))
+            .Replace("__MERMAID_RENDER_FAILED__", JsonConvert.SerializeObject(localization.MermaidRenderFailed));
     }
 
-    private static string EnsureLocalAssets()
+    private string EnsureLocalAssets()
     {
         var assetsFolder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -611,7 +648,7 @@ internal sealed class MermaidWebViewPreview : Grid
         WriteIfDifferent(mermaidBundlePath, MermaidBundle.Value);
 
         var mermaidHostPath = Path.Combine(assetsFolder, MermaidHostFileName);
-        WriteIfDifferent(mermaidHostPath, MermaidHostHtml.Value);
+        WriteIfDifferent(mermaidHostPath, BuildHostHtml(_localization));
 
         return assetsFolder;
     }

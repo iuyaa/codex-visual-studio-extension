@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -359,6 +360,11 @@ internal static class MarkdownRenderer
             return CreateCommandHyperlink(label, target, command);
         }
 
+        if (!TryGetSafeExternalUri(url, out var safeUri))
+        {
+            return new Run(label);
+        }
+
         var hyperlink = new Hyperlink(new Run(label))
         {
             Foreground = CreateBrush(CurrentTheme.LinkColor),
@@ -378,7 +384,7 @@ internal static class MarkdownRenderer
 
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = url,
+                    FileName = safeUri.AbsoluteUri,
                     UseShellExecute = true
                 });
             }
@@ -388,6 +394,25 @@ internal static class MarkdownRenderer
         };
 
         return hyperlink;
+    }
+
+    internal static bool TryGetSafeExternalUri(string? value, out Uri uri)
+    {
+        uri = null!;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var candidate))
+        {
+            return false;
+        }
+
+        if (!string.Equals(candidate.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(candidate.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(candidate.Scheme, Uri.UriSchemeMailto, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        uri = candidate;
+        return true;
     }
 
     private static Inline CreateFileReferenceHyperlink(string reference)
@@ -688,13 +713,8 @@ internal static class MarkdownRenderer
 
             if (scrollViewer is not null)
             {
-                scrollViewer.Dispatcher.BeginInvoke(
-                    new Action(() =>
-                    {
-                        scrollViewer.ScrollToHorizontalOffset(horizontalOffset);
-                        scrollViewer.ScrollToVerticalOffset(verticalOffset);
-                    }),
-                    DispatcherPriority.ContextIdle);
+                RestoreScrollOffsetsAsync(scrollViewer, horizontalOffset, verticalOffset)
+                    .FileAndForget("CodexVsix/RestoreCodeScrollPosition");
             }
         };
         actionsHost.Children.Add(copyButton);
@@ -704,6 +724,14 @@ internal static class MarkdownRenderer
         panel.Children.Add(CreateLanguageBadge(title));
 
         return panel;
+    }
+
+    private static async Task RestoreScrollOffsetsAsync(ScrollViewer scrollViewer, double horizontalOffset, double verticalOffset)
+    {
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        await Task.Yield();
+        scrollViewer.ScrollToHorizontalOffset(horizontalOffset);
+        scrollViewer.ScrollToVerticalOffset(verticalOffset);
     }
 
     private static FrameworkElement CreateMermaidViewSwitch(FrameworkElement preview, FrameworkElement codeView)
@@ -2114,7 +2142,7 @@ internal static class MarkdownRenderer
             return null;
         }
 
-        var parts = value.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        var parts = value!.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
         var values = new DoubleCollection();
         foreach (var part in parts)
         {

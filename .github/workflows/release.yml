@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Versão do release no formato major.minor.patch"
+        description: "Versão já gravada no código, no formato major.minor.patch"
         required: true
         type: string
       prerelease:
@@ -23,8 +23,9 @@ jobs:
   build-and-release:
     runs-on: windows-2022
     env:
-      VS_MARKETPLACE_PUBLISHER: ${{ secrets.VS_MARKETPLACE_PUBLISHER }}
-      VS_MARKETPLACE_PAT: ${{ secrets.VS_MARKETPLACE_PAT }}
+      VSIX_SIGNING_PFX_BASE64: ${{ secrets.VSIX_SIGNING_PFX_BASE64 }}
+      VSIX_SIGNING_PFX_PASSWORD: ${{ secrets.VSIX_SIGNING_PFX_PASSWORD }}
+      VSIX_SIGNING_CERT_SHA256: ${{ secrets.VSIX_SIGNING_CERT_SHA256 }}
 
     steps:
       - name: Checkout
@@ -32,124 +33,144 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
         with:
           msbuild-architecture: x64
 
-      - name: Resolve version
+      - name: Resolve and validate source version
         id: version
         shell: pwsh
         run: |
+          [xml]$props = Get-Content Directory.Build.props -Raw -Encoding UTF8
+          $sourceVersion = [string]$props.Project.PropertyGroup.Version
+
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $version = "${{ inputs.version }}"
+            $requestedVersion = "${{ inputs.version }}"
             $prerelease = "${{ inputs.prerelease }}"
           }
           else {
-            $version = "${{ github.ref_name }}"
-            if ($version.StartsWith("v")) {
-              $version = $version.Substring(1)
-            }
+            $requestedVersion = "${{ github.ref_name }}".TrimStart("v")
             $prerelease = "false"
           }
 
-          if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "A versão deve estar no formato major.minor.patch."
+          if ($sourceVersion -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Directory.Build.props contém uma versão inválida: '$sourceVersion'."
+          }
+          if ($requestedVersion -ne $sourceVersion) {
+            throw "A versão solicitada '$requestedVersion' difere da versão commitada '$sourceVersion'. Execute scripts/Set-VsixVersion.ps1, revise e faça commit antes do release."
+          }
+
+          [xml]$manifest = Get-Content CodexVsix\source.extension.vsixmanifest -Raw -Encoding UTF8
+          $ns = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
+          $ns.AddNamespace("vsix", "http://schemas.microsoft.com/developer/vsx-schema/2011")
+          $identity = $manifest.SelectSingleNode("/vsix:PackageManifest/vsix:Metadata/vsix:Identity", $ns)
+          if (-not $identity -or [string]$identity.Version -ne $sourceVersion) {
+            throw "source.extension.vsixmanifest não está sincronizado com Directory.Build.props."
           }
 
           @(
-            "version=$version"
-            "assembly_version=$version.0"
-            "tag=v$version"
+            "version=$sourceVersion"
+            "tag=v$sourceVersion"
             "prerelease=$prerelease"
           ) | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Stamp extension version
+      - name: Restore locked dependencies and audit
         shell: pwsh
         run: |
-          .\scripts\Set-VsixVersion.ps1 `
-            -Version "${{ steps.version.outputs.version }}" `
-            -AssemblyVersion "${{ steps.version.outputs.assembly_version }}"
+          dotnet restore CodexVs2026Extension.sln `
+            --locked-mode `
+            -p:NuGetAudit=true `
+            -p:NuGetAuditMode=all `
+            -p:WarningsAsErrors=NU1901%3BNU1902%3BNU1903%3BNU1904
+
+      - name: Test
+        shell: pwsh
+        run: dotnet test CodexVs2026Extension.sln -c Release --no-restore
 
       - name: Build VSIX
         shell: pwsh
         run: |
-          Remove-Item -Path CodexVsix\CodexVsix.vsix -ErrorAction SilentlyContinue
-          Remove-Item -Path CodexVsix\obj\Release\net472\extension.vsixmanifest -ErrorAction SilentlyContinue
-
+          Remove-Item -LiteralPath CodexVsix\CodexVsix.vsix -ErrorAction SilentlyContinue
           msbuild CodexVsix\CodexVsix.csproj `
-            /restore `
             /t:Rebuild `
             /m `
             /p:Configuration=Release `
-            /p:BuildVsixPackage=true
+            /p:RestoreLockedMode=true `
+            /p:BuildVsixPackage=true `
+            /p:Version=${{ steps.version.outputs.version }}
 
-      - name: Verify VSIX output
-        id: verify
+      - name: Verify unsigned build output
         shell: pwsh
         run: |
-          $vsix = Resolve-Path CodexVsix\CodexVsix.vsix -ErrorAction SilentlyContinue
-          if (-not $vsix) {
-            throw "O arquivo CodexVsix\\CodexVsix.vsix não foi gerado."
+          .\scripts\Test-VsixPackage.ps1 `
+            -VsixPath CodexVsix\CodexVsix.vsix `
+            -ExpectedVersion "${{ steps.version.outputs.version }}"
+
+      - name: Sign VSIX when signing credentials are configured
+        if: ${{ env.VSIX_SIGNING_PFX_BASE64 != '' && env.VSIX_SIGNING_PFX_PASSWORD != '' && env.VSIX_SIGNING_CERT_SHA256 != '' }}
+        shell: pwsh
+        run: |
+          $toolPath = Join-Path $env:RUNNER_TEMP "sign-cli"
+          $certificatePath = Join-Path $env:RUNNER_TEMP "vsix-signing.pfx"
+          try {
+            dotnet tool install sign `
+              --tool-path $toolPath `
+              --version 0.9.1-beta.26330.1
+            [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:VSIX_SIGNING_PFX_BASE64))
+
+            & (Join-Path $toolPath "sign.exe") code certificate-store `
+              -cf $certificatePath `
+              -p $env:VSIX_SIGNING_PFX_PASSWORD `
+              -cfp $env:VSIX_SIGNING_CERT_SHA256 `
+              -fd SHA256 `
+              -d "Visual Codex Studio VSIX" `
+              -u "https://github.com/rodrigojager/codex-visual-studio-extension" `
+              -t "http://timestamp.acs.microsoft.com/" `
+              CodexVsix\CodexVsix.vsix
+            if ($LASTEXITCODE -ne 0) {
+              throw "Sign CLI encerrou com código $LASTEXITCODE."
+            }
+          }
+          finally {
+            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
           }
 
-          $extractPath = Join-Path $env:RUNNER_TEMP "codex-vsix-verify"
-          $zipPath = Join-Path $env:RUNNER_TEMP "codex-vsix-verify.zip"
-          Remove-Item -Path $extractPath -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
-          Copy-Item -Path $vsix.Path -Destination $zipPath -Force
-          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
-
-          $manifestPath = Join-Path $extractPath "extension.vsixmanifest"
-          if (-not (Test-Path $manifestPath)) {
-            throw "O extension.vsixmanifest não foi encontrado dentro do VSIX."
-          }
-
-          [xml]$manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8
-          $ns = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
-          $ns.AddNamespace("vsix", "http://schemas.microsoft.com/developer/vsx-schema/2011")
-          $identity = $manifest.SelectSingleNode("/vsix:PackageManifest/vsix:Metadata/vsix:Identity", $ns)
-          if (-not $identity) {
-            throw "Não foi possível localizar o Identity dentro do extension.vsixmanifest empacotado."
-          }
-
-          $manifestVersion = $identity.Version
-          if ($manifestVersion -ne "${{ steps.version.outputs.version }}") {
-            throw "A versão dentro do VSIX ($manifestVersion) difere da versão esperada (${{ steps.version.outputs.version }})."
-          }
-
-          "vsix_path=$($vsix.Path -replace '\\', '/')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - name: Verify signed VSIX
+        if: ${{ env.VSIX_SIGNING_PFX_BASE64 != '' && env.VSIX_SIGNING_PFX_PASSWORD != '' && env.VSIX_SIGNING_CERT_SHA256 != '' }}
+        shell: pwsh
+        run: |
+          .\scripts\Test-VsixPackage.ps1 `
+            -VsixPath CodexVsix\CodexVsix.vsix `
+            -ExpectedVersion "${{ steps.version.outputs.version }}" `
+            -RequireSignature
 
       - name: Collect artifact
         id: package
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          $target = Join-Path (Resolve-Path artifacts) ("CodexVsix-" + "${{ steps.version.outputs.version }}" + ".vsix")
-          Copy-Item -Path "${{ steps.verify.outputs.vsix_path }}" -Destination $target -Force
+          $target = Join-Path (Resolve-Path artifacts) ("Visual-Codex-Studio-" + "${{ steps.version.outputs.version }}" + ".vsix")
+          Copy-Item -LiteralPath CodexVsix\CodexVsix.vsix -Destination $target -Force
           "path=$($target -replace '\\', '/')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CodexVsix-${{ steps.version.outputs.version }}
+          name: Visual-Codex-Studio-${{ steps.version.outputs.version }}
           path: ${{ steps.package.outputs.path }}
-
-      - name: Publish Visual Studio Marketplace
-        if: ${{ env.VS_MARKETPLACE_PUBLISHER != '' && env.VS_MARKETPLACE_PAT != '' }}
-        shell: pwsh
-        run: |
-          .\scripts\Publish-Marketplace.ps1 `
-            -PublisherName "${env:VS_MARKETPLACE_PUBLISHER}" `
-            -PersonalAccessToken "${env:VS_MARKETPLACE_PAT}" `
-            -VsixPath "${{ steps.package.outputs.path }}"
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: Codex for Visual Studio 2026 v${{ steps.version.outputs.version }}
+          name: Visual Codex Studio v${{ steps.version.outputs.version }}
           files: ${{ steps.package.outputs.path }}
           generate_release_notes: true
           prerelease: ${{ steps.version.outputs.prerelease == 'true' }}

@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Audited false positives in content-hashed upstream WebView bundles"
+paths = [
+  '''^CodexVsix/UI/CodexWebview/webview/assets/electron-menu-shortcuts-Dg7YBLmV\.js$''',
+  '''^CodexVsix/UI/CodexWebview/webview/assets/pkg-Cbovq3bJ\.js$''',
+  '''^CodexVsix/UI/CodexWebview/webview/assets/statsig-ZsHpMBGA\.js$''',
+  '''^CodexVsix/UI/CodexWebview/webview/assets/xterm-display-helpers-nyxAcxBq\.js$''',
+]

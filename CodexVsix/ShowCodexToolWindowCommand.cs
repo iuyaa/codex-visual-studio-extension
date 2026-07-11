@@ -33,14 +33,6 @@ internal sealed class ShowCodexToolWindowCommand
     {
         try
         {
-            ToolWindowPane? existingWindow = await _package.FindToolWindowAsync(typeof(CodexToolWindow), 0, false, _package.DisposalToken);
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(_package.DisposalToken);
-            if (existingWindow?.Frame is IVsWindowFrame existingFrame && IsFrameVisible(existingFrame))
-            {
-                existingFrame.CloseFrame((uint)__FRAMECLOSE.FRAMECLOSE_NoSave);
-                return;
-            }
-
             ToolWindowPane window = await _package.FindToolWindowAsync(typeof(CodexToolWindow), 0, true, _package.DisposalToken);
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(_package.DisposalToken);
             if (window?.Frame is not IVsWindowFrame frame)
@@ -66,9 +58,4 @@ internal sealed class ShowCodexToolWindowCommand
         }
     }
 
-    private static bool IsFrameVisible(IVsWindowFrame frame)
-    {
-        ThreadHelper.ThrowIfNotOnUIThread();
-        return frame.IsVisible() == 0;
-    }
 }

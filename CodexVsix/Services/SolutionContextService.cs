@@ -5,13 +5,32 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using EnvDTE;
+using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.TextManager.Interop;
 
 namespace CodexVsix.Services;
 
 public sealed class SolutionContextService
 {
+    private const int MaxIndexedFiles = 100000;
+    private static readonly TimeSpan FileIndexLifetime = TimeSpan.FromMinutes(2);
+    private static readonly HashSet<string> IgnoredDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".git", ".vs", ".idea", "bin", "obj", "node_modules", "packages", "TestResults"
+    };
+
+    private readonly object _fileIndexSync = new();
+    private string _fileIndexRoot = string.Empty;
+    private DateTime _fileIndexCreatedUtc;
+    private IReadOnlyList<string> _fileIndex = Array.Empty<string>();
+    private Task<IReadOnlyList<string>>? _fileIndexBuildTask;
+    private string? _lastActiveDocumentPath;
+
     public string? TryGetBestWorkspaceDirectory()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
@@ -43,62 +62,102 @@ public sealed class SolutionContextService
     public string BuildIdeContextSummary(string workingDirectory)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
-        var localization = new LocalizationService();
 
         var sections = new List<string>();
         var solutionDirectory = TryGetSolutionDirectory();
         if (!string.IsNullOrWhiteSpace(solutionDirectory))
         {
-            sections.Add(localization.IdeContextSolutionLabel + " " + FormatPath(workingDirectory, solutionDirectory));
+            sections.Add("## Solution: " + FormatPath(workingDirectory, solutionDirectory));
         }
 
         var activeDocument = TryGetActiveDocumentPath();
         if (!string.IsNullOrWhiteSpace(activeDocument))
         {
-            sections.Add(localization.IdeContextActiveDocumentLabel + " " + FormatPath(workingDirectory, activeDocument));
+            sections.Add("## Active file: " + FormatPath(workingDirectory, activeDocument));
         }
 
         var selectedItems = GetSelectedPaths(workingDirectory);
         if (selectedItems.Count > 0)
         {
-            sections.Add(localization.IdeContextSelectedItemsLabel + " " + string.Join(", ", selectedItems.Take(5)));
+            sections.Add("## Selected items:" + Environment.NewLine
+                + string.Join(Environment.NewLine, selectedItems.Take(5).Select(path => "- " + path)));
         }
 
         var openDocuments = GetOpenDocumentPaths(workingDirectory);
         if (openDocuments.Count > 0)
         {
-            sections.Add(localization.IdeContextOpenFilesLabel + " " + string.Join(", ", openDocuments.Take(6)));
+            sections.Add("## Open tabs:" + Environment.NewLine
+                + string.Join(Environment.NewLine, openDocuments.Take(6).Select(path => "- " + path)));
         }
 
         var selectionSnippet = TryGetActiveSelectionSnippet();
         if (!string.IsNullOrWhiteSpace(selectionSnippet))
         {
-            sections.Add(localization.IdeContextSelectionLabel + Environment.NewLine + selectionSnippet);
+            sections.Add("## Active selection of the file:" + Environment.NewLine + selectionSnippet);
         }
 
-        return string.Join(Environment.NewLine, sections.Where(section => !string.IsNullOrWhiteSpace(section)));
+        return string.Join(
+            Environment.NewLine + Environment.NewLine,
+            sections.Where(section => !string.IsNullOrWhiteSpace(section)));
     }
 
-    public IReadOnlyList<string> FindSolutionFiles(string search)
+    public string? GetActiveDocumentPath()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
-        var root = GetBestWorkingDirectory();
+        return TryGetActiveDocumentPath();
+    }
+
+    public string GetActiveSelectionSnippetForPrompt(int maxLength = 6000)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        return TryGetActiveSelectionSnippet(maxLength);
+    }
+
+    public IReadOnlyList<string> GetOpenDocumentPathsForIdeContext()
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        return GetOpenDocumentPathsRaw();
+    }
+
+    public string FormatPathForPrompt(string root, string path)
+    {
+        return FormatPath(root, path);
+    }
+
+    public IReadOnlyList<string> GetSelectedItemPathsForPrompt(string workingDirectory)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        return GetSelectedPaths(workingDirectory);
+    }
+
+    public async Task<IReadOnlyList<string>> FindSolutionFilesAsync(string workingDirectory, string search, CancellationToken cancellationToken)
+    {
+        var root = NormalizeFullPath(workingDirectory);
         if (!Directory.Exists(root))
         {
             return Array.Empty<string>();
         }
 
         var normalized = (search ?? string.Empty).Trim().Replace('\\', '/');
-        var files = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-            .Where(f => !IsIgnoredPath(f))
-            .Select(f => MakeRelative(root, f))
+        var files = await GetFileIndexAsync(root, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return files
             .Where(f => string.IsNullOrWhiteSpace(normalized) || f.IndexOf(normalized, StringComparison.OrdinalIgnoreCase) >= 0)
             .OrderBy(f => Score(f, normalized))
-            .ThenBy(f => f)
+            .ThenBy(f => f, StringComparer.OrdinalIgnoreCase)
             .Take(30)
             .ToList();
+    }
 
-        return files;
+    public void InvalidateFileIndex()
+    {
+        lock (_fileIndexSync)
+        {
+            _fileIndexRoot = string.Empty;
+            _fileIndexCreatedUtc = DateTime.MinValue;
+            _fileIndex = Array.Empty<string>();
+            _fileIndexBuildTask = null;
+        }
     }
 
     public IReadOnlyList<string> GetSolutionFilePaths()
@@ -151,7 +210,7 @@ public sealed class SolutionContextService
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         if (!File.Exists(path))
         {
-            File.WriteAllText(path, "model = \"gpt-5.4\"" + Environment.NewLine);
+            File.WriteAllText(path, string.Empty, new UTF8Encoding(false));
         }
 
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -310,7 +369,7 @@ public sealed class SolutionContextService
             return false;
         }
 
-        var trimmed = skillName.Trim();
+        var trimmed = skillName!.Trim();
         if (!char.IsLetterOrDigit(trimmed[0]))
         {
             return false;
@@ -350,10 +409,118 @@ public sealed class SolutionContextService
             + localization.SkillTemplateFlowStep3 + Environment.NewLine;
     }
 
-    private static bool IsIgnoredPath(string fullPath)
+    private async Task<IReadOnlyList<string>> GetFileIndexAsync(string root, CancellationToken cancellationToken)
     {
-        var p = fullPath.Replace('\\', '/');
-        return p.Contains("/.git/") || p.Contains("/bin/") || p.Contains("/obj/") || p.Contains("/node_modules/") || p.Contains("/.vs/");
+        Task<IReadOnlyList<string>> buildTask;
+        lock (_fileIndexSync)
+        {
+            if (string.Equals(_fileIndexRoot, root, StringComparison.OrdinalIgnoreCase)
+                && DateTime.UtcNow - _fileIndexCreatedUtc < FileIndexLifetime
+                && _fileIndex.Count > 0)
+            {
+                return _fileIndex;
+            }
+
+            if (_fileIndexBuildTask is null || !string.Equals(_fileIndexRoot, root, StringComparison.OrdinalIgnoreCase))
+            {
+                _fileIndexRoot = root;
+                _fileIndexBuildTask = Task.Run(() => BuildFileIndex(root));
+            }
+
+            buildTask = _fileIndexBuildTask;
+        }
+
+        IReadOnlyList<string> result;
+        try
+        {
+            result = await buildTask.ConfigureAwait(false);
+        }
+        catch
+        {
+            lock (_fileIndexSync)
+            {
+                if (ReferenceEquals(_fileIndexBuildTask, buildTask))
+                {
+                    _fileIndexBuildTask = null;
+                }
+            }
+
+            throw;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_fileIndexSync)
+        {
+            if (ReferenceEquals(_fileIndexBuildTask, buildTask)
+                && string.Equals(_fileIndexRoot, root, StringComparison.OrdinalIgnoreCase))
+            {
+                _fileIndex = result;
+                _fileIndexCreatedUtc = DateTime.UtcNow;
+                _fileIndexBuildTask = null;
+            }
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyList<string> BuildFileIndex(string root)
+    {
+        var files = new List<string>();
+        var directories = new Stack<string>();
+        directories.Push(root);
+
+        while (directories.Count > 0 && files.Count < MaxIndexedFiles)
+        {
+            var directory = directories.Pop();
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly))
+                {
+                    files.Add(MakeRelative(root, file));
+                    if (files.Count >= MaxIndexedFiles)
+                    {
+                        break;
+                    }
+                }
+
+                if (files.Count >= MaxIndexedFiles)
+                {
+                    break;
+                }
+
+                foreach (var child in Directory.EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly))
+                {
+                    if (IgnoredDirectoryNames.Contains(Path.GetFileName(child)))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0)
+                        {
+                            continue;
+                        }
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    directories.Push(child);
+                }
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException
+                || ex is IOException
+                || ex is PathTooLongException
+                || ex is DirectoryNotFoundException)
+            {
+            }
+        }
+
+        return files
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static string? TryGetActiveProjectDirectory()
@@ -416,42 +583,97 @@ public sealed class SolutionContextService
         return null;
     }
 
-    private static string? TryGetActiveDocumentDirectory()
+    private string? TryGetActiveDocumentDirectory()
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var path = TryGetActiveDocumentPath();
+        return string.IsNullOrWhiteSpace(path) ? null : Path.GetDirectoryName(path);
+    }
+
+    private string? TryGetActiveDocumentPath()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
 
-        try
+        var path = TryGetDteActiveDocumentPath() ?? TryGetActiveTextViewDocumentPath();
+        if (!string.IsNullOrWhiteSpace(path))
         {
-            var dte = Package.GetGlobalService(typeof(DTE)) as DTE;
-            var fullName = dte?.ActiveDocument?.FullName;
-            if (!string.IsNullOrWhiteSpace(fullName) && File.Exists(fullName))
-            {
-                return Path.GetDirectoryName(fullName);
-            }
-        }
-        catch
-        {
+            _lastActiveDocumentPath = path;
+            return path;
         }
 
+        if (!string.IsNullOrWhiteSpace(_lastActiveDocumentPath) && File.Exists(_lastActiveDocumentPath))
+        {
+            return _lastActiveDocumentPath;
+        }
+
+        _lastActiveDocumentPath = null;
         return null;
     }
 
-    private static string? TryGetActiveDocumentPath()
+    private static string? TryGetDteActiveDocumentPath()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
 
         try
         {
             var dte = Package.GetGlobalService(typeof(DTE)) as DTE;
-            var fullName = dte?.ActiveDocument?.FullName;
-            return !string.IsNullOrWhiteSpace(fullName) && File.Exists(fullName)
-                ? fullName
-                : null;
+            return NormalizeExistingDocumentPath(dte?.ActiveDocument?.FullName);
         }
         catch
         {
             return null;
         }
+    }
+
+    private static string? TryGetActiveTextViewDocumentPath()
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+
+        try
+        {
+            if (!TryGetActiveTextView(out var textView)
+                || ErrorHandler.Failed(textView!.GetBuffer(out var textLines))
+                || textLines is not IPersistFileFormat persistFileFormat
+                || ErrorHandler.Failed(persistFileFormat.GetCurFile(out var filePath, out _)))
+            {
+                return null;
+            }
+
+            return NormalizeExistingDocumentPath(filePath);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? NormalizeExistingDocumentPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var fullPath = Path.GetFullPath(path!);
+            return File.Exists(fullPath) ? fullPath : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool TryGetActiveTextView(out IVsTextView? textView)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        textView = null;
+
+        var textManager = Package.GetGlobalService(typeof(SVsTextManager)) as IVsTextManager;
+        return textManager is not null
+            && ErrorHandler.Succeeded(textManager.GetActiveView(0, null, out textView))
+            && textView is not null;
     }
 
     private static string? TryGetProjectDirectory(Project? project)
@@ -642,22 +864,80 @@ public sealed class SolutionContextService
 
     private static string MakeRelative(string root, string file)
     {
-        var relative = file.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        return relative.Replace('\\', '/');
-    }
-
-    private static string FormatPath(string root, string path)
-    {
-        if (!string.IsNullOrWhiteSpace(root)
-            && path.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        var normalizedRoot = NormalizeFullPath(root);
+        var normalizedFile = NormalizeFullPath(file);
+        var rootWithSeparator = EnsureTrailingDirectorySeparator(normalizedRoot);
+        if (!normalizedFile.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
         {
-            return MakeRelative(root, path);
+            return normalizedFile.Replace('\\', '/');
         }
 
-        return path.Replace('\\', '/');
+        return normalizedFile.Substring(rootWithSeparator.Length).Replace('\\', '/');
+    }
+
+    private static string FormatPath(string? root, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        var normalizedPath = NormalizeFullPath(path);
+        if (!string.IsNullOrWhiteSpace(root))
+        {
+            var normalizedRoot = NormalizeFullPath(root);
+            if (string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return ".";
+            }
+
+            if (normalizedPath.StartsWith(EnsureTrailingDirectorySeparator(normalizedRoot), StringComparison.OrdinalIgnoreCase))
+            {
+                return MakeRelative(normalizedRoot, normalizedPath);
+            }
+        }
+
+        return normalizedPath.Replace('\\', '/');
+    }
+
+    private static string NormalizeFullPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var fullPath = Path.GetFullPath(path!.Trim());
+            var root = Path.GetPathRoot(fullPath);
+            return !string.IsNullOrWhiteSpace(root) && string.Equals(fullPath, root, StringComparison.OrdinalIgnoreCase)
+                ? root!
+                : fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch
+        {
+            return path!.Trim();
+        }
+    }
+
+    private static string EnsureTrailingDirectorySeparator(string path)
+    {
+        return path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+            || path.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+                ? path
+                : path + Path.DirectorySeparatorChar;
     }
 
     private static IReadOnlyList<string> GetOpenDocumentPaths(string workingDirectory)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        return GetOpenDocumentPathsRaw()
+            .Select(path => FormatPath(workingDirectory, path))
+            .ToList();
+    }
+
+    private static IReadOnlyList<string> GetOpenDocumentPathsRaw()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
 
@@ -669,13 +949,17 @@ public sealed class SolutionContextService
                 return Array.Empty<string>();
             }
 
-            return dte.Documents
-                .Cast<Document>()
-                .Select(document => document.FullName)
-                .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
-                .Select(path => FormatPath(workingDirectory, path!))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var paths = new List<string>();
+            foreach (Document document in dte.Documents)
+            {
+                var path = NormalizeExistingDocumentPath(document.FullName);
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    paths.Add(path!);
+                }
+            }
+
+            return paths.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
         catch
         {
@@ -716,7 +1000,7 @@ public sealed class SolutionContextService
         }
     }
 
-    private static string TryGetActiveSelectionSnippet()
+    private static string TryGetActiveSelectionSnippet(int maxLength = 900)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
 
@@ -725,24 +1009,74 @@ public sealed class SolutionContextService
             var dte = Package.GetGlobalService(typeof(DTE)) as DTE;
             var textSelection = dte?.ActiveDocument?.Selection as TextSelection;
             var selectedText = textSelection?.Text;
-            if (string.IsNullOrWhiteSpace(selectedText))
+            if (!string.IsNullOrWhiteSpace(selectedText))
+            {
+                return NormalizeSelectionSnippet(selectedText!, maxLength);
+            }
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            if (!TryGetActiveTextView(out var textView)
+                || ErrorHandler.Failed(textView!.GetSelection(
+                    out var startLine,
+                    out var startIndex,
+                    out var endLine,
+                    out var endIndex))
+                || (startLine == endLine && startIndex == endIndex)
+                || ErrorHandler.Failed(textView.GetBuffer(out var textLines)))
             {
                 return string.Empty;
             }
 
-            var normalized = selectedText.Replace("\r\n", "\n").Trim();
-            const int maxLength = 900;
-            if (normalized.Length <= maxLength)
-            {
-                return normalized;
-            }
-
-            return normalized.Substring(0, maxLength).TrimEnd() + Environment.NewLine + "...";
+            NormalizeSelectionRange(ref startLine, ref startIndex, ref endLine, ref endIndex);
+            return ErrorHandler.Succeeded(textLines.GetLineText(
+                startLine,
+                startIndex,
+                endLine,
+                endIndex,
+                out var selectedText))
+                ? NormalizeSelectionSnippet(selectedText, maxLength)
+                : string.Empty;
         }
         catch
         {
             return string.Empty;
         }
+    }
+
+    private static void NormalizeSelectionRange(
+        ref int startLine,
+        ref int startIndex,
+        ref int endLine,
+        ref int endIndex)
+    {
+        if (startLine < endLine || (startLine == endLine && startIndex <= endIndex))
+        {
+            return;
+        }
+
+        (startLine, endLine) = (endLine, startLine);
+        (startIndex, endIndex) = (endIndex, startIndex);
+    }
+
+    private static string NormalizeSelectionSnippet(string? text, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(text) || maxLength <= 0)
+        {
+            return string.Empty;
+        }
+
+        var normalized = text!.Replace("\r\n", "\n").Trim();
+        if (normalized.Length <= maxLength)
+        {
+            return normalized;
+        }
+
+        return normalized.Substring(0, maxLength).TrimEnd() + Environment.NewLine + "...";
     }
 
     private static int Score(string file, string search)
