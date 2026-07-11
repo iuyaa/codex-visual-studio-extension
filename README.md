@@ -2,121 +2,239 @@
 
 Run Codex inside Visual Studio without leaving the IDE.
 
-`Visual Codex Studio` adds a docked Codex tool window to Visual Studio 2022 and 2026. It uses your local Codex CLI installation, keeps the conversation inside Visual Studio, and stays compatible with the active Visual Studio theme and the extension's current UI languages.
+`Visual Codex Studio` is a 64-bit VSIX for Visual Studio 2022 and Visual Studio
+2026. It hosts the local Codex CLI through `codex app-server`, adapts the Codex
+WebView to Visual Studio, and connects conversations to the active solution,
+editor, theme, and user settings.
 
-## ⚠️ Project not actively maintained
+Current release: [v1.3.0](https://github.com/rodrigojager/codex-visual-studio-extension/releases/tag/v1.3.0)
 
-This repository is no longer actively maintained.
+> [!WARNING]
+> This project is not actively maintained. Version 1.3.0 was an exceptional,
+> one-off maintenance release and does not imply ongoing development or support.
+> Issues and pull requests may not be reviewed. Fork the repository if you need
+> continued maintenance or compatibility work for future Codex and Visual Studio
+> versions.
 
-The code remains available for reference and forking under the existing license, and main eventually be revisted.
-Issues and pull requests may not be reviewed in a timely manner (or ever).
+> [!IMPORTANT]
+> This is an independent project. It is not affiliated with, endorsed by, or
+> officially associated with OpenAI or ChatGPT. Logos and product references are
+> used only to describe the integration.
 
-Users are encouraged to fork the project if they want to continue development.
+## What It Provides
 
-## ⚠️ Disclaimer
+### Codex inside Visual Studio
 
-This extension is an independent project and is not affiliated with, endorsed by, or officially associated with OpenAI or ChatGPT. Any logos or references used are for integration purposes only.
+- Dockable Codex chat in the Visual Studio tool window area.
+- Frozen Codex WebView adapted to Visual Studio WebView2, theme resources, locale,
+  and the local app-server transport.
+- Normal and plan collaboration modes.
+- Runtime model discovery with model-specific reasoning options, verbosity,
+  service tier, approval policy, and sandbox controls.
+- Streaming assistant output, tool activity, approvals, interactive questions,
+  Markdown, diffs, and Mermaid diagrams.
+- Clipboard and file-picker image attachments sent as app-server `localImage`
+  inputs.
+- Session usage and rate-limit information when supplied by the Codex runtime.
+- Bounded local recent-task history instead of the incompatible cloud-task view.
 
-## Highlights
+### Visual Studio context and commands
 
-- Docked chat-style Codex panel inside Visual Studio
-- VS Code-style Codex header, composer controls, and settings access
-- Independent settings tab in the Visual Studio document well, with immediate synchronization back to the chat
-- Visual Studio commands matching Codex for VS Code: open sidebar, new agent, add selection/file to thread, review selection, and implement with Codex
-- Normal mode and plan mode
-- Separate additional-information prompt window so the chat stays visible while answering plan questions
-- Markdown output with a render/text toggle for easier reading and copy/paste
-- Model selection
-- Reasoning effort selection (`minimal`, `low`, `medium`, `high`, `xhigh`)
-- Verbosity selection (`low`, `medium`, `high`)
-- `approval_policy` and `sandbox_mode` selection
-- Atomic local settings persistence with Windows user-level protection for secrets and prompt history
-- Bounded local prompt history with an explicit clear action
-- Bounded long-conversation hydration in the official WebView: 120 recent turns or 2 MB initially, followed by explicit 20-turn batches
-- Lazy rendering and display-only limits for large Markdown, diffs, tool output, and streaming output while the full Codex session remains intact
-- Manual context compaction plus optional automatic compaction when context usage reaches 85%
-- Image attachment from the clipboard or file picker
-- Local image input through the Codex app-server protocol
-- Solution-aware `@file` search while typing
-- Session usage and rate-limit visibility in the Visual Studio UI
-- VS Code-compatible composer defaults: Enter sends, Shift+Enter inserts a newline, and Ctrl+Enter always sends
+- Active document, selected text, and open editor tabs are sent through the IDE
+  context contract when IDE context is enabled.
+- Solution-aware `@file` search is asynchronous, bounded, and excludes generated
+  directories and reparse points.
+- Editor context-menu commands can add a selection to the current thread, review
+  selected code, or ask Codex to implement it.
+- Solution Explorer can add the selected file to the current thread.
+- Visual Studio commands are available for opening Codex, starting a new agent,
+  and opening settings.
+- Plan questions use a separate prompt window so the main conversation remains
+  visible.
 
-## Authentication and Provider Support
+### Settings
 
-Authentication belongs to the person running Visual Studio. The recommended setup is to run `codex login` and sign in with that user's own ChatGPT account; the extension then reuses the local Codex CLI session.
+- Settings open in an independent Visual Studio document tab, leaving chat
+  available at the same time.
+- Changes are persisted immediately and invalidate all active chat consumers;
+  there is no Apply button or extension restart requirement.
+- Configurable executable path, working directory, model, reasoning, verbosity,
+  service tier, profile, approvals, sandbox, follow-up behavior, composer Enter
+  behavior, review delivery, managed MCP servers, and startup behavior.
+- UI localization for English, Brazilian Portuguese, Spanish, French, and German.
+- Visual Studio theme integration for light and dark environments.
 
-Advanced user-local setups remain supported:
+### Long-conversation behavior
 
-- `OPENAI_API_KEY` defined in that user's environment
-- Provider-based configuration in `~/.codex/config.toml`
-- Profile-based configuration that selects a provider from `config.toml`
+The extension deliberately avoids materializing an entire large conversation in
+the Visual Studio WebView at once:
 
-No ChatGPT cookie, token, API key, `auth.json`, or publisher credential is bundled in the repository or VSIX. Each installation uses only the authentication available in that Windows user's local Codex configuration. The WebView is not given `OPENAI_API_KEY` from the Visual Studio process.
+- Initial history is limited to the most recent 120 turns or 2 MB.
+- Older history is loaded explicitly in batches of 20 turns, with a 512 KB batch
+  budget.
+- Large messages, diffs, tool output, and streams are limited only in the Visual
+  Studio display copy. The full content remains in the Codex session history.
+- Browser-native lazy rendering reduces work for content outside the visible
+  viewport.
+- Manual context compaction is available, with optional automatic compaction after
+  a completed turn reaches 85% context usage.
+
+These controls improve responsiveness, but they do not make conversation size
+unlimited. Runtime, model-context, and machine-resource limits still apply.
 
 ## Requirements
 
-- Visual Studio 2022 or Visual Studio 2026, 64-bit
-- Codex CLI installed locally
-- A working local Codex authentication or provider configuration
+- Visual Studio 2022 or Visual Studio 2026, 64-bit, with the Core Editor workload.
+- .NET Framework 4.7.2 or newer.
+- Codex CLI installed locally and available through `codex`, `codex.cmd`, or the
+  executable path selected in extension settings.
+- A working per-user Codex login or provider configuration.
 
-## Notes
+The VSIX does not bundle the Codex CLI or an OpenAI account.
 
-- The extension calls your local Codex CLI or app-server flow; it does not bundle the runtime.
-- If your local Codex setup already works in the terminal, the extension is designed to reuse that setup.
-- Image attachments are sent as `localImage` inputs through `codex app-server`; the selected local file must remain readable until the turn starts.
-- Theme support uses Visual Studio theme resources so the UI works in light and dark themes.
-- UI strings remain localized through the extension's existing localization pipeline.
+## Installation
 
-## Manual Future-Proofing
+1. Install the Codex CLI and verify that `codex --version` works in a terminal.
+2. Run `codex login` with the ChatGPT account that will use Visual Studio, or
+   configure that user's provider in `~/.codex/config.toml`.
+3. Download the VSIX from
+   [GitHub Releases](https://github.com/rodrigojager/codex-visual-studio-extension/releases/latest)
+   or use the Marketplace package when available.
+4. Run the VSIX installer and follow its instructions for the desired Visual
+   Studio instances.
+5. Open Visual Studio and choose `View > Codex`. The canonical command is
+   `View.VisualCodexStudio` and can be assigned a keyboard shortcut.
 
-The extension keeps its local settings in `%LOCALAPPDATA%\CodexVsix\settings.json`, outside the source tree and outside the VSIX package. If new Codex or provider capabilities appear before the extension is updated, users can open this file from the Codex settings UI or edit non-sensitive fields directly. Environment variables, raw TOML overrides, additional CLI arguments, and prompt history are encrypted for the current Windows user with DPAPI. Never copy this user-local file or `~/.codex/auth.json` into the repository.
+If authentication is missing, the extension's Account settings can open the
+local `codex login` flow.
 
-Useful fields:
+## Authentication and Local Data
 
-- `FollowUpQueueMode`: compatible with VS Code values `queue`, `steer`, or `interrupt`.
-- `AutoCompactLongConversations`: opt in to context compaction after a turn completes at 85% context usage.
-- `ComposerEnterBehavior`: `enter`, `cmdIfMultiline`, or `ctrlEnter`.
-- `ReviewDelivery`: `inline` or `detached`.
-- `OpenOnStartup`: focuses the Codex tool window when Visual Studio opens a solution.
-- `CustomModels`: extra model ids shown in the model selector.
-- `CustomReasoningEfforts`: extra reasoning effort values shown in the reasoning selector.
-- `CustomVerbosityOptions`: extra verbosity values shown in the verbosity selector.
-- `CustomServiceTiers`: extra service tier values shown in the speed selector.
+Authentication always belongs to the Windows user running Visual Studio. The
+recommended path is that user's own `codex login` session. Advanced local setups
+can instead use:
 
-Manual option entries can be either a raw value, such as `"minimal"`, or a label/value pair, such as `"Very high|very_high"` or `"Very high=very_high"`.
+- `OPENAI_API_KEY` in that user's environment.
+- Provider configuration in `~/.codex/config.toml`.
+- A Codex profile that selects provider-specific configuration.
 
-Provider and profile configuration should continue to live in `~/.codex/config.toml`; the extension starts the local Codex runtime and lets that runtime resolve provider-specific behavior.
+No ChatGPT cookie, token, API key, `auth.json`, publisher credential, or signing
+key is bundled in the repository or VSIX. The WebView is not given
+`OPENAI_API_KEY` from the Visual Studio process.
 
-## Build
+Extension settings are stored at `%LOCALAPPDATA%\CodexVsix\settings.json`, outside
+the repository and VSIX. Sensitive extension settings and prompt history are
+protected for the current Windows user with DPAPI and written atomically. Codex
+authentication and provider configuration remain under that user's Codex home
+directory and must never be copied into this repository.
 
-Release packaging uses full Visual Studio MSBuild.
+## Configuration Notes
+
+- Provider and profile behavior should be configured in `~/.codex/config.toml`.
+- The settings UI supports extra model, reasoning, verbosity, and service-tier
+  entries for runtimes that expose options newer than this frozen extension.
+- Additional CLI arguments, environment overrides, and raw TOML overrides are
+  advanced per-user settings. They are passed to the local runtime and should be
+  reviewed before use.
+- Attached local images must remain readable until the turn starts.
+- The embedded WebView is a frozen bundle. A future Codex CLI or protocol change
+  may require source changes that this unmaintained project will not receive.
+
+## Build and Test
+
+Release packaging requires full Visual Studio MSBuild.
 
 ```powershell
 $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
 $install = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
 $msbuild = Join-Path $install "MSBuild\Current\Bin\MSBuild.exe"
 
-dotnet restore CodexVs2026Extension.sln --locked-mode
+[xml]$props = Get-Content Directory.Build.props -Raw
+$version = [string]$props.Project.PropertyGroup.Version
+
+dotnet restore CodexVs2026Extension.sln `
+  --locked-mode `
+  -p:NuGetAudit=true `
+  -p:NuGetAuditMode=all `
+  -p:WarningsAsErrors=NU1901%3BNU1902%3BNU1903%3BNU1904
+
 dotnet test CodexVs2026Extension.sln -c Release --no-restore
 
 & $msbuild `
   CodexVsix\CodexVsix.csproj `
   /t:Rebuild `
+  /m:1 `
+  /nr:false `
   /p:Configuration=Release `
+  /p:RestoreLockedMode=true `
   /p:BuildVsixPackage=true
 
 .\scripts\Test-VsixPackage.ps1 `
   -VsixPath CodexVsix\CodexVsix.vsix `
-  -ExpectedVersion 1.3.0
+  -ExpectedVersion $version
 ```
 
-`dotnet build` can compile the project, but VSIX packaging targets should be produced with Visual Studio `MSBuild.exe`.
+`dotnet build` can compile the projects, but the final VSIX should be produced
+with Visual Studio `MSBuild.exe`. The package verifier checks manifest and
+assembly versions, required WebView assets, third-party runtime versions,
+credential filenames, private signing material, and package signatures.
 
-The CI workflow restores locked packages with NuGet auditing, runs the tests, builds the VSIX, and validates its contents. Releases use the committed version from `Directory.Build.props`; run `scripts/Set-VsixVersion.ps1` and commit the result before creating a tag. The release workflow signs the package when `VSIX_SIGNING_PFX_BASE64`, `VSIX_SIGNING_PFX_PASSWORD`, and `VSIX_SIGNING_CERT_SHA256` are configured, otherwise it publishes the verified unsigned package. Visual Studio Marketplace publication is intentionally manual and is never triggered by the GitHub release workflow.
+GitHub CI performs locked restore with NuGet auditing, tests, packaging, and VSIX
+verification. Tagged releases are signed only when all repository signing secrets
+are configured; otherwise the workflow publishes a verified unsigned package.
+Visual Studio Marketplace publication is intentionally manual.
 
-Third-party code and its reviewed bundle hash are documented in `THIRD-PARTY-NOTICES.md` and included in the VSIX.
+## Changelog
 
-## Repository
+### 1.3.0 - 2026-07-11
 
-- Extension project: `CodexVsix/CodexVsix.csproj`
-- Marketplace overview: `marketplace/overview.md`
+- Replaced the older presentation with the adapted Codex WebView, Visual Studio
+  theme integration, Codex-style header/composer, and an independent settings tab.
+- Added current IDE commands and context menus for selections, files, reviews, and
+  implementation requests.
+- Added active document, selection, and open-tab context using the WebView's
+  expected IDE contract.
+- Added runtime model discovery and host metadata so the assistant can identify
+  the selected model and reasoning effort.
+- Added bounded history loading, lazy rendering, display-only payload limits,
+  manual compaction, and optional automatic compaction for long conversations.
+- Replaced incompatible cloud task history with a bounded local task-history
+  popover.
+- Updated app-server support for reviews, steering, approvals, permissions,
+  elicitation, plugins, MCP operations, authentication, and logout.
+- Hardened process cancellation, follow-up queues, attachments, solution search,
+  Markdown/Mermaid rendering, settings persistence, and WebView dispatch.
+- Protected sensitive local settings with DPAPI and added package checks that
+  reject credential and private signing files.
+- Added locked dependency restore, NuGet auditing, 101 automated tests, reproducible
+  versioning, VSIX verification, and optional release signing.
+
+### 1.2.1 - 2026-05-01
+
+- Refreshed the VSIX manifests and packaged extension metadata.
+
+### 1.2.0 - 2026-05-01
+
+- Renamed the extension to Visual Codex Studio and refreshed its iconography.
+- Added conversation rename support and keyboard command registration.
+- Virtualized chat history and buffered large message updates to reduce UI churn.
+- Fixed history loading, rate-limit presentation, and layout instability.
+
+See [CHANGELOG.md](CHANGELOG.md) for the complete release history and detailed
+change list.
+
+## Repository Layout
+
+- `CodexVsix/`: Visual Studio extension, app-server host, WebView bridge, and UI.
+- `CodexVsix.Tests/`: automated regression and package-contract tests.
+- `scripts/Test-VsixPackage.ps1`: release package verifier.
+- `scripts/Set-VsixVersion.ps1`: synchronized version updater.
+- `marketplace/overview.md`: Marketplace-facing product description.
+- `THIRD-PARTY-NOTICES.md`: bundled third-party notices and reviewed asset hashes.
+
+## License and Third-Party Code
+
+The project source is available under the [MIT License](LICENSE). Bundled
+third-party components and the frozen WebView provenance are documented in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and
+[`CodexVsix/UI/CodexWebview/SOURCE.md`](CodexVsix/UI/CodexWebview/SOURCE.md).
