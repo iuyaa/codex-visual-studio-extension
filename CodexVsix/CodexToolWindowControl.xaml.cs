@@ -19,7 +19,7 @@ using Microsoft.VisualStudio.Shell;
 
 namespace CodexVsix;
 
-public partial class CodexToolWindowControl : UserControl
+public partial class CodexToolWindowControl : UserControl, IDisposable
 {
     private readonly CodexToolWindowViewModel _viewModel;
     private readonly List<FrameworkElement> _chatSelectableElements = new();
@@ -30,8 +30,7 @@ public partial class CodexToolWindowControl : UserControl
     private bool _chatScrollToEndScheduled;
     private UserInputPromptWindow? _userInputPromptWindow;
     private bool _suppressUserInputWindowClosedCancel;
-    private readonly CodexOfficialWebViewHost _officialWebViewHost;
-    private bool _officialWebViewFallbackRequested;
+    private bool _disposed;
 
     public CodexToolWindowControl()
     {
@@ -57,15 +56,6 @@ public partial class CodexToolWindowControl : UserControl
         }
 
         DataContext = _viewModel;
-        _officialWebViewHost = new CodexOfficialWebViewHost(_viewModel);
-        Grid.SetColumnSpan(_officialWebViewHost, 2);
-        Panel.SetZIndex(_officialWebViewHost, 1000);
-        _officialWebViewHost.FallbackRequested += (_, _) =>
-        {
-            _officialWebViewFallbackRequested = true;
-            UpdateOfficialWebViewVisibility();
-        };
-        RootLayoutGrid.Children.Add(_officialWebViewHost);
         _viewModel.Messages.CollectionChanged += OnMessagesCollectionChanged;
         foreach (var message in _viewModel.Messages)
         {
@@ -82,7 +72,6 @@ public partial class CodexToolWindowControl : UserControl
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _viewModel.EnsureToolWindowStartupState();
-        UpdateOfficialWebViewVisibility();
         UpdatePromptTextBoxMaxHeight();
         ScrollChatToEndAsync().FileAndForget("CodexVsix/ScrollOnLoad");
         SyncUserInputPromptWindow();
@@ -185,13 +174,6 @@ public partial class CodexToolWindowControl : UserControl
             SyncUserInputPromptWindow();
         }
 
-        if (string.IsNullOrEmpty(e.PropertyName)
-            || string.Equals(e.PropertyName, nameof(CodexToolWindowViewModel.CurrentApprovalPrompt), StringComparison.Ordinal)
-            || string.Equals(e.PropertyName, nameof(CodexToolWindowViewModel.HasCurrentApprovalPrompt), StringComparison.Ordinal))
-        {
-            UpdateOfficialWebViewVisibility();
-        }
-
         if (string.Equals(e.PropertyName, nameof(CodexToolWindowViewModel.FocusComposerRequestVersion), StringComparison.Ordinal))
         {
             FocusPromptComposerAsync().FileAndForget("CodexVsix/FocusComposer");
@@ -201,23 +183,9 @@ public partial class CodexToolWindowControl : UserControl
     private async Task FocusPromptComposerAsync()
     {
         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-        if (_officialWebViewHost.Visibility == Visibility.Visible
-            && CodexOfficialWebViewHostRegistry.TryFocusComposer())
-        {
-            return;
-        }
-
         await Task.Yield();
         PromptTextBox.Focus();
         PromptTextBox.CaretIndex = PromptTextBox.Text?.Length ?? 0;
-    }
-
-    private void UpdateOfficialWebViewVisibility()
-    {
-        _officialWebViewHost.Visibility = !_officialWebViewFallbackRequested
-            && !_viewModel.HasCurrentApprovalPrompt
-                ? Visibility.Visible
-                : Visibility.Collapsed;
     }
 
     private async Task ScrollChatToEndAsync()
@@ -455,20 +423,16 @@ public partial class CodexToolWindowControl : UserControl
     private void OnLanguageOptionClick(object sender, RoutedEventArgs e)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
-        if (sender is not FrameworkElement element || element.Tag is not string value)
-        {
-            return;
-        }
-
-        _viewModel.SelectedLanguageTag = value;
-        if (_viewModel.CloseSidebarCommand.CanExecute(null))
-        {
-            _viewModel.CloseSidebarCommand.Execute(null);
-        }
-        e.Handled = true;
+        SelectLanguageOptionAndCloseSidebar(sender, e);
     }
 
     private void OnLanguageOptionPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        SelectLanguageOptionAndCloseSidebar(sender, e);
+    }
+
+    private void SelectLanguageOptionAndCloseSidebar(object sender, RoutedEventArgs e)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
         if (sender is not FrameworkElement element || element.Tag is not string value)
@@ -976,5 +940,28 @@ public partial class CodexToolWindowControl : UserControl
         {
             _viewModel.DismissUserInputPrompt();
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        CloseUserInputPromptWindow(suppressCancel: true);
+        _viewModel.Messages.CollectionChanged -= OnMessagesCollectionChanged;
+        foreach (var message in _subscribedChatMessages.ToList())
+        {
+            UnsubscribeMessage(message);
+        }
+
+        _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        Loaded -= OnLoaded;
+        Unloaded -= OnUnloaded;
+        SizeChanged -= OnSizeChanged;
+        PreviewKeyDown -= OnPreviewKeyDown;
+        DataContext = null;
     }
 }

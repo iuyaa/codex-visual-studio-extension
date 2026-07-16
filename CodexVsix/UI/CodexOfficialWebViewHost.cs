@@ -35,10 +35,12 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
     private readonly CodexOfficialWebViewBridge _bridge;
     private readonly string _initialRoute;
     private readonly bool _isSettingsSurface;
+    private readonly bool _refreshToolWindowStartupState;
     private bool _initialized;
     private bool _ready;
     private bool _disposed;
     private bool _themeSubscribed;
+    private bool _fallbackRequested;
     private int _initializationGeneration;
 
     public CodexOfficialWebViewHost(
@@ -51,6 +53,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         _viewModel = viewModel;
         _initialRoute = string.IsNullOrWhiteSpace(initialRoute) ? "/" : initialRoute;
         _isSettingsSurface = isSettingsSurface;
+        _refreshToolWindowStartupState = registerAsPrimaryHost;
         ClipToBounds = true;
         SetResourceReference(BackgroundProperty, EnvironmentColors.ToolWindowBackgroundBrushKey);
 
@@ -80,7 +83,6 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             queryKey => CodexOfficialWebViewHostRegistry.BroadcastQueryInvalidation(this, queryKey),
             isSettingsSurface);
         Loaded += OnLoaded;
-        Unloaded += OnUnloaded;
         CodexOfficialWebViewHostRegistry.Register(this, registerAsPrimaryHost);
     }
 
@@ -90,18 +92,12 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        InitializeAsync().FileAndForget("CodexVsix/OfficialWebViewInitialize");
-    }
-
-    private void OnUnloaded(object sender, RoutedEventArgs e)
-    {
-        ThreadHelper.ThrowIfNotOnUIThread();
-        if (_disposed)
+        if (_refreshToolWindowStartupState)
         {
-            return;
+            _viewModel.EnsureToolWindowStartupState();
         }
 
-        ResetWebViewForReload();
+        InitializeAsync().FileAndForget("CodexVsix/OfficialWebViewInitialize");
     }
 
     private async Task InitializeAsync()
@@ -179,7 +175,11 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
     private void ConfigureCoreWebView(WebView2 webView)
     {
         var core = webView.CoreWebView2;
+#if DEBUG
         core.Settings.AreDevToolsEnabled = true;
+#else
+        core.Settings.AreDevToolsEnabled = false;
+#endif
         core.Settings.AreDefaultContextMenusEnabled = true;
         core.Settings.AreBrowserAcceleratorKeysEnabled = true;
         core.Settings.IsStatusBarEnabled = false;
@@ -321,24 +321,6 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         _queuedMessages.Clear();
     }
 
-    private void ResetWebViewForReload()
-    {
-        ThreadHelper.ThrowIfNotOnUIThread();
-        _initializationGeneration++;
-        _initialized = false;
-        _ready = false;
-        _bridge.DisableInteractiveServerRequests();
-
-        var previous = _webView;
-        UnsubscribeAndDispose(previous);
-        Children.Remove(previous);
-
-        _webView = new WebView2();
-        Children.Insert(0, _webView);
-        _statusText.Text = "Loading Codex…";
-        _statusLayer.Visibility = Visibility.Visible;
-    }
-
     private void UnsubscribeAndDispose(WebView2 webView)
     {
         try
@@ -437,11 +419,19 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             + exception.Message
             + "\n\nThe classic Visual Studio interface remains available.";
         _statusLayer.Visibility = Visibility.Visible;
-        _statusLayer.MouseLeftButtonUp += (_, _) =>
+        RequestFallback();
+    }
+
+    private void RequestFallback()
+    {
+        var handler = FallbackRequested;
+        if (_fallbackRequested || handler is null)
         {
-            Visibility = Visibility.Collapsed;
-            FallbackRequested?.Invoke(this, EventArgs.Empty);
-        };
+            return;
+        }
+
+        _fallbackRequested = true;
+        handler(this, EventArgs.Empty);
     }
 
     private async Task ShowFailureOnUiThreadAsync(Exception exception)
@@ -509,7 +499,6 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 
         _disposed = true;
         Loaded -= OnLoaded;
-        Unloaded -= OnUnloaded;
         _initializationGeneration++;
         _lifetimeCts.Cancel();
         _lifetimeCts.Dispose();

@@ -7,14 +7,14 @@ Run Codex inside Visual Studio without leaving the IDE.
 WebView to Visual Studio, and connects conversations to the active solution,
 editor, theme, and user settings.
 
-Current release: [v1.3.0](https://github.com/rodrigojager/codex-visual-studio-extension/releases/tag/v1.3.0)
+Current release: [v1.3.1](https://github.com/rodrigojager/codex-visual-studio-extension/releases/tag/v1.3.1)
 
 > [!WARNING]
-> This project is not actively maintained. Version 1.3.0 was an exceptional,
-> one-off maintenance release and does not imply ongoing development or support.
-> Issues and pull requests may not be reviewed. Fork the repository if you need
-> continued maintenance or compatibility work for future Codex and Visual Studio
-> versions.
+> This project is not actively maintained. Versions 1.3.0 and 1.3.1 were
+> exceptional maintenance releases and do not imply ongoing development or
+> support. Issues and pull requests may not be reviewed. Fork the repository if
+> you need continued maintenance or compatibility work for future Codex and
+> Visual Studio versions.
 
 > [!IMPORTANT]
 > This is an independent project. It is not affiliated with, endorsed by, or
@@ -185,6 +185,17 @@ are configured; otherwise the workflow publishes a verified unsigned package.
 Visual Studio Marketplace publication is intentionally manual.
 
 ## Changelog
+
+### 1.3.1 - 2026-07-16
+
+- Reduced editor slowdown while the Codex tool window is open.
+- Prevented the official WebView and the classic interface from loading at the
+  same time.
+- Kept the classic interface as a fallback when the official interface cannot
+  load.
+- Deferred automatic opening until Visual Studio reaches an idle state.
+- Improved cleanup of the tool window and WebView resources.
+- Added regression tests for the new loading and startup behavior.
 
 ### 1.3.0 - 2026-07-11
 

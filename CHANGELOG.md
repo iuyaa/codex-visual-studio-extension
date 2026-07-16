@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.1 - 2026-07-16
+
+### Melhora o desempenho e a estabilidade da janela do Codex
+- Reduz a lentidão do editor enquanto a janela do Codex está aberta.
+- Evita o carregamento simultâneo de duas interfaces.
+- Mantém a interface anterior como alternativa caso a principal não carregue.
+- Posterga a abertura automática até o Visual Studio estar pronto.
+- Melhora o encerramento e a liberação dos recursos da extensão.
+- Adiciona testes para evitar que esses problemas retornem.
+
 ## 1.3.0 - 2026-07-11
 
 ### Added

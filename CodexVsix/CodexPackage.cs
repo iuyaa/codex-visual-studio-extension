@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 using CodexVsix.Services;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
@@ -23,6 +24,16 @@ public sealed class CodexPackage : AsyncPackage
         CodexToolWindowManager.Initialize(this);
         await ShowCodexToolWindowCommand.InitializeAsync(this);
         await CodexIdeCommands.InitializeAsync(this);
+
+        OpenMainToolWindowWhenShellIsIdleAsync(DisposalToken)
+            .FileAndForget("CodexVsix/AutoOpenToolWindow");
+    }
+
+    private async Task OpenMainToolWindowWhenShellIsIdleAsync(CancellationToken cancellationToken)
+    {
+        await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (new ExtensionSettingsStore().Load().OpenOnStartup)
         {
