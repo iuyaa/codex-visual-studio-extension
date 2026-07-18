@@ -125,4 +125,20 @@ public sealed class ExtensionSettingsStoreTests
         Assert.False(string.IsNullOrWhiteSpace(store.LastLoadError));
         Assert.Single(Directory.EnumerateFiles(temp.Path, "settings.corrupt.*.json"));
     }
+
+    [Fact]
+    public void DiagnosticLoggingIsOptInAndPersistsWhenExplicitlyEnabled()
+    {
+        using var temp = new TemporaryDirectory();
+        var file = Path.Combine(temp.Path, "settings.json");
+        var store = new ExtensionSettingsStore(
+            file,
+            "Local\\CodexVsix.Tests." + Guid.NewGuid().ToString("N"));
+
+        Assert.False(store.Load().EnableDiagnosticLogging);
+
+        store.Save(new CodexExtensionSettings { EnableDiagnosticLogging = true });
+
+        Assert.True(store.Load().EnableDiagnosticLogging);
+    }
 }

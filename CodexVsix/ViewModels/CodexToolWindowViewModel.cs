@@ -111,6 +111,9 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         ThreadHelper.ThrowIfNotOnUIThread();
         CleanupStaleTempImages();
         Settings = _settingsStore.Load();
+        CodexDiagnosticLogger.Shared.SetEnabled(
+            Settings.EnableDiagnosticLogging,
+            writeTransition: false);
         EnsureSettingsCollectionsInitialized();
         LocalizationService.SetDefaultLanguageOverride(Settings.LanguageOverride);
         _localization = new LocalizationService(Settings.LanguageOverride);
@@ -1103,6 +1106,23 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         }
     }
 
+    public bool DiagnosticLoggingEnabled
+    {
+        get => Settings.EnableDiagnosticLogging;
+        set
+        {
+            if (Settings.EnableDiagnosticLogging == value)
+            {
+                return;
+            }
+
+            Settings.EnableDiagnosticLogging = value;
+            CodexDiagnosticLogger.Shared.SetEnabled(value);
+            OnPropertyChanged();
+            SaveSettings();
+        }
+    }
+
     public bool PlanModeEnabled
     {
         get => Settings.PlanModeEnabled;
@@ -1828,6 +1848,9 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
                     break;
                 case "autoCompactLongConversations":
                     OnPropertyChanged(nameof(AutoCompactLongConversationsEnabled));
+                    break;
+                case "diagnosticLoggingEnabled":
+                    OnPropertyChanged(nameof(DiagnosticLoggingEnabled));
                     break;
                 case "followUpQueueMode":
                     OnPropertyChanged(nameof(SelectedFollowUpQueueMode));

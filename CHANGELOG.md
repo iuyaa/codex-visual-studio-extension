@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.3.3 - 2026-07-18
+
+### Deixa o chat mais confiável em modo dock e em janela
+- Melhora o funcionamento do painel ao encaixar, soltar ou mover a janela do
+  Codex dentro do Visual Studio.
+- Aprende qual interface funciona melhor no computador atual e começa por ela
+  nas próximas sessões, usando a alternativa automaticamente quando necessário.
+- Mantém apenas uma interface carregada por vez e preserva as melhorias de
+  velocidade da versão anterior.
+- Evita recarregamentos desnecessários enquanto o painel permanece na mesma
+  janela do Visual Studio.
+- Adiciona logs de diagnóstico opcionais em **Configurações > Geral**, sem exigir
+  reinicialização e sempre desligados por padrão.
+- Corrige a exibição dessa opção na tela de configurações e mantém os arquivos
+  locais com rotação automática.
+- Os logs evitam credenciais em formatos comuns, mas ainda devem ser revisados
+  antes de serem compartilhados publicamente.
+- Amplia os testes automáticos para evitar regressões no dock, na alternativa
+  automática, nos logs e no pacote de instalação.
+
 ## 1.3.1 - 2026-07-16
 
 ### Melhora o desempenho e a estabilidade da janela do Codex

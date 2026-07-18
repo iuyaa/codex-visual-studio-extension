@@ -38,4 +38,5 @@ public sealed class CodexExtensionSettings
     public bool IncludeHiddenModels { get; set; } = false;
     public bool OpenOnStartup { get; set; } = false;
     public bool AutoCompactLongConversations { get; set; } = false;
+    public bool EnableDiagnosticLogging { get; set; } = false;
 }

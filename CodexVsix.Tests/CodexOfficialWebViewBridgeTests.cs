@@ -96,7 +96,8 @@ public sealed class CodexOfficialWebViewBridgeTests
             LanguageOverride = "pt-BR",
             FollowUpQueueMode = "steer",
             ComposerEnterBehavior = "cmdIfMultiline",
-            ReviewDelivery = "detached"
+            ReviewDelivery = "detached",
+            EnableDiagnosticLogging = true
         };
         var persistedState = new JObject
         {
@@ -113,6 +114,8 @@ public sealed class CodexOfficialWebViewBridgeTests
         Assert.Equal("steer", values["followUpQueueMode"]?.Value<string>());
         Assert.Equal("cmdIfMultiline", values["composerEnterBehavior"]?.Value<string>());
         Assert.Equal("pt-BR", values["localeOverride"]?.Value<string>());
+        Assert.True(values["diagnosticLoggingEnabled"]?.Value<bool>());
+        Assert.True(values["chatgpt.diagnosticLoggingEnabled"]?.Value<bool>());
         Assert.True(values["show-context-window-usage"]?.Value<bool>());
         Assert.True(values["chatgpt.show-context-window-usage"]?.Value<bool>());
         Assert.True(values["preventSleepWhileRunning"]?.Value<bool>());
@@ -139,6 +142,7 @@ public sealed class CodexOfficialWebViewBridgeTests
         Assert.DoesNotContain("OnPropertyChanged(string.Empty)", methodSource);
         Assert.Contains("OnPropertyChanged(nameof(SelectedReviewDelivery))", methodSource);
         Assert.Contains("OnPropertyChanged(nameof(SelectedFollowUpQueueMode))", methodSource);
+        Assert.Contains("OnPropertyChanged(nameof(DiagnosticLoggingEnabled))", methodSource);
     }
 
     [Fact]

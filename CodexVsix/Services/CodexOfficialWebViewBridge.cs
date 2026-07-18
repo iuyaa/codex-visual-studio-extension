@@ -54,6 +54,7 @@ internal sealed class CodexOfficialWebViewBridge : IDisposable
     private readonly Action<string>? _openSettings;
     private readonly Action<JToken>? _broadcastQueryInvalidation;
     private readonly bool _isSettingsSurface;
+    private readonly Action<string>? _routeChanged;
     private bool _disposed;
 
     public CodexOfficialWebViewBridge(
@@ -61,7 +62,8 @@ internal sealed class CodexOfficialWebViewBridge : IDisposable
         Action<JObject> postMessage,
         Action<string>? openSettings = null,
         Action<JToken>? broadcastQueryInvalidation = null,
-        bool isSettingsSurface = false)
+        bool isSettingsSurface = false,
+        Action<string>? routeChanged = null)
     {
         _viewModel = viewModel;
         _processService = viewModel.ProcessService;
@@ -69,6 +71,7 @@ internal sealed class CodexOfficialWebViewBridge : IDisposable
         _openSettings = openSettings;
         _broadcastQueryInvalidation = broadcastQueryInvalidation;
         _isSettingsSurface = isSettingsSurface;
+        _routeChanged = routeChanged;
         _appServerRequestRelay = new CodexAppServerRequestRelay(Post);
         _appServerRequestForwarder = _appServerRequestRelay.ForwardAsync;
         _historyWindowController = new CodexWebViewHistoryWindowController(PostHistoryWindowStatus);
@@ -176,6 +179,14 @@ internal sealed class CodexOfficialWebViewBridge : IDisposable
                 HandleSharedObjectSet(message);
                 return;
 
+            case "diagnostic-settings-request":
+                PostDiagnosticLoggingState();
+                return;
+
+            case "diagnostic-settings-set":
+                SetDiagnosticLogging(message["enabled"]?.Value<bool>() == true);
+                return;
+
             case "navigate-to-route":
                 var navigationPath = message["path"]?.Value<string>() ?? "/";
                 if (IsSettingsRoute(navigationPath) && TryOpenExternalSettings(message, navigationPath))
@@ -183,6 +194,7 @@ internal sealed class CodexOfficialWebViewBridge : IDisposable
                     return;
                 }
 
+                _routeChanged?.Invoke(navigationPath);
                 Post(new JObject
                 {
                     ["type"] = "navigate-to-route",
@@ -197,10 +209,12 @@ internal sealed class CodexOfficialWebViewBridge : IDisposable
                 return;
 
             case "navigate-in-new-editor-tab":
+                var editorRoute = ResolveRoute(message, "/");
+                _routeChanged?.Invoke(editorRoute);
                 Post(new JObject
                 {
                     ["type"] = "navigate-to-route",
-                    ["path"] = ResolveRoute(message, "/"),
+                    ["path"] = editorRoute,
                     ["state"] = message["state"]?.DeepClone()
                 });
                 return;
@@ -212,6 +226,7 @@ internal sealed class CodexOfficialWebViewBridge : IDisposable
                     return;
                 }
 
+                _routeChanged?.Invoke(settingsPath);
                 Post(new JObject
                 {
                     ["type"] = "navigate-to-route",
@@ -307,6 +322,28 @@ internal sealed class CodexOfficialWebViewBridge : IDisposable
             ["key"] = key,
             ["value"] = value?.DeepClone()
         });
+    }
+
+    private void PostDiagnosticLoggingState()
+    {
+        Post(new JObject
+        {
+            ["type"] = "diagnostic-settings-state",
+            ["enabled"] = _viewModel.Settings.EnableDiagnosticLogging
+        });
+    }
+
+    private void SetDiagnosticLogging(bool enabled)
+    {
+        if (_viewModel.Settings.EnableDiagnosticLogging != enabled)
+        {
+            _viewModel.Settings.EnableDiagnosticLogging = enabled;
+            _settingsStore.Save(_viewModel.Settings);
+            _viewModel.NotifySettingsChangedFromOfficialWebView("diagnosticLoggingEnabled");
+        }
+
+        CodexDiagnosticLogger.Shared.SetEnabled(enabled);
+        PostDiagnosticLoggingState();
     }
 
     public void HideHistoryWindow()
@@ -1144,6 +1181,7 @@ internal sealed class CodexOfficialWebViewBridge : IDisposable
         SetSettingAliases(values, "cliExecutable", settings.CodexExecutablePath);
         SetSettingAliases(values, "openOnStartup", settings.OpenOnStartup);
         SetSettingAliases(values, "autoCompactLongConversations", settings.AutoCompactLongConversations);
+        SetSettingAliases(values, "diagnosticLoggingEnabled", settings.EnableDiagnosticLogging);
         SetSettingAliases(values, "followUpQueueMode", settings.FollowUpQueueMode);
         SetSettingAliases(values, "composerEnterBehavior", settings.ComposerEnterBehavior);
         SetSettingAliases(values, "reviewDelivery", settings.ReviewDelivery);
@@ -1186,6 +1224,7 @@ internal sealed class CodexOfficialWebViewBridge : IDisposable
             "cliExecutable" => _viewModel.Settings.CodexExecutablePath,
             "openOnStartup" => _viewModel.Settings.OpenOnStartup,
             "autoCompactLongConversations" => _viewModel.Settings.AutoCompactLongConversations,
+            "diagnosticLoggingEnabled" => _viewModel.Settings.EnableDiagnosticLogging,
             "followUpQueueMode" => _viewModel.Settings.FollowUpQueueMode,
             "composerEnterBehavior" => _viewModel.Settings.ComposerEnterBehavior,
             "reviewDelivery" => _viewModel.Settings.ReviewDelivery,
@@ -1223,6 +1262,10 @@ internal sealed class CodexOfficialWebViewBridge : IDisposable
                 break;
             case "autoCompactLongConversations":
                 _viewModel.Settings.AutoCompactLongConversations = value?.Value<bool>() == true;
+                break;
+            case "diagnosticLoggingEnabled":
+                _viewModel.Settings.EnableDiagnosticLogging = value?.Value<bool>() == true;
+                CodexDiagnosticLogger.Shared.SetEnabled(_viewModel.Settings.EnableDiagnosticLogging);
                 break;
             case "followUpQueueMode":
                 _viewModel.Settings.FollowUpQueueMode = NormalizeEnumSetting(
@@ -2062,40 +2105,46 @@ internal sealed class CodexOfficialWebViewBridge : IDisposable
 
     private static void LogWebViewMessage(string? level, string message)
     {
-        var text = "[official webview] " + SanitizeLogText(message);
-        switch (level?.ToLowerInvariant())
-        {
-            case "error":
-                ActivityLog.TryLogError("CodexVsix", text);
-                break;
-            case "warn":
-            case "warning":
-                ActivityLog.TryLogWarning("CodexVsix", text);
-                break;
-            default:
-                ActivityLog.TryLogInformation("CodexVsix", text);
-                break;
-        }
+        CodexDiagnosticLogger.Shared.Write(
+            "webview.message",
+            new JObject
+            {
+                ["level"] = level ?? "info",
+                ["message"] = SanitizeLogText(message)
+            });
     }
 
     private static void LogInformation(string message)
     {
-        ActivityLog.TryLogInformation("CodexVsix", "[official bridge] " + SanitizeLogText(message));
+        LogBridgeMessage("info", message);
     }
 
     private static void LogWarning(string message)
     {
-        ActivityLog.TryLogWarning("CodexVsix", "[official bridge] " + SanitizeLogText(message));
+        LogBridgeMessage("warning", message);
     }
 
     private static void LogError(string message)
     {
-        ActivityLog.TryLogError("CodexVsix", "[official bridge] " + SanitizeLogText(message));
+        LogBridgeMessage("error", message);
+    }
+
+    private static void LogBridgeMessage(string level, string message)
+    {
+        CodexDiagnosticLogger.Shared.Write(
+            "bridge.message",
+            new JObject
+            {
+                ["level"] = level,
+                ["message"] = SanitizeLogText(message)
+            });
     }
 
     private static string SanitizeLogText(string? text)
     {
-        var sanitized = (text ?? string.Empty).Replace('\r', ' ').Replace('\n', ' ');
+        var sanitized = CodexDiagnosticLogger.SanitizeText(text)
+            .Replace('\r', ' ')
+            .Replace('\n', ' ');
         return sanitized.Length <= 6000 ? sanitized : sanitized.Substring(0, 6000);
     }
 

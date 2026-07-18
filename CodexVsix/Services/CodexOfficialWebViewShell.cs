@@ -68,18 +68,25 @@ internal static class CodexOfficialWebViewShell
         string webviewId,
         string locale,
         CodexVisualStudioTheme theme,
-        string? initialRoute = null)
+        string? initialRoute = null,
+        bool diagnosticLoggingEnabled = false)
     {
         var indexPath = Path.Combine(resourceRoot, "webview", "index.html");
         var shimPath = Path.Combine(resourceRoot, "codex-acquire-vscode-api-shim.js");
         var historyGuardPath = Path.Combine(resourceRoot, "codex-visual-studio-history-guard.js");
-        if (!File.Exists(indexPath) || !File.Exists(shimPath) || !File.Exists(historyGuardPath))
+        var diagnosticsPath = Path.Combine(resourceRoot, "codex-visual-studio-diagnostics.js");
+        if (!File.Exists(indexPath)
+            || !File.Exists(shimPath)
+            || !File.Exists(historyGuardPath)
+            || !File.Exists(diagnosticsPath))
         {
             var missingPath = !File.Exists(indexPath)
                 ? indexPath
                 : !File.Exists(shimPath)
                     ? shimPath
-                    : historyGuardPath;
+                    : !File.Exists(historyGuardPath)
+                        ? historyGuardPath
+                        : diagnosticsPath;
             throw new FileNotFoundException("The bundled Codex webview is incomplete.", missingPath);
         }
 
@@ -106,6 +113,9 @@ internal static class CodexOfficialWebViewShell
             + "<meta name=\"codex-session-id\" content=\"vs-" + WebUtility.HtmlEncode(webviewId) + "\">\n"
             + "<meta name=\"codex-build-flavor\" content=\"prod\">\n"
             + "<meta name=\"codex-view-kind\" content=\"sidebar\">\n"
+            + "<meta name=\"codex-diagnostic-logging-enabled\" content=\""
+            + (diagnosticLoggingEnabled ? "true" : "false")
+            + "\">\n"
             + "<meta name=\"initial-route\" content=\"" + WebUtility.HtmlEncode(NormalizeRoute(initialRoute)) + "\">";
         html = Regex.Replace(
             html,
@@ -115,11 +125,13 @@ internal static class CodexOfficialWebViewShell
 
         var shim = AdaptShimForWebView2(File.ReadAllText(shimPath));
         var historyGuard = File.ReadAllText(historyGuardPath);
+        var diagnostics = File.ReadAllText(diagnosticsPath);
         var injection = "<style>" + theme.ToCss() + "</style>\n"
             + ThemeAdapter + "\n"
             + WebView2TransportAdapter + "\n"
             + "<script>" + shim + "</script>\n"
-            + "<script>" + historyGuard + "</script>\n";
+            + "<script>" + historyGuard + "</script>\n"
+            + "<script>" + diagnostics + "</script>\n";
         html = Regex.Replace(
             html,
             "(<script\\b(?=[^>]*\\btype=([\"'])module\\2)[^>]*>)",

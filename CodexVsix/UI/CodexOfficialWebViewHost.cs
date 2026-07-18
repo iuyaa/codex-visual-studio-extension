@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using CodexVsix.Services;
 using CodexVsix.ViewModels;
@@ -21,43 +22,80 @@ using Newtonsoft.Json.Linq;
 
 namespace CodexVsix.UI;
 
+internal sealed class CodexOfficialWebViewReadyEventArgs : EventArgs
+{
+    public CodexOfficialWebViewReadyEventArgs(TimeSpan readyDuration, string hostingMode)
+    {
+        ReadyDuration = readyDuration;
+        HostingMode = hostingMode ?? string.Empty;
+    }
+
+    public TimeSpan ReadyDuration { get; }
+
+    public string HostingMode { get; }
+}
+
+internal sealed class CodexOfficialWebViewFallbackEventArgs : EventArgs
+{
+    public CodexOfficialWebViewFallbackEventArgs(string failureKind, string reason)
+    {
+        FailureKind = failureKind ?? string.Empty;
+        Reason = reason ?? string.Empty;
+    }
+
+    public string FailureKind { get; }
+
+    public string Reason { get; }
+}
+
 internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 {
     private const int MaxQueuedMessages = 100;
+    private static readonly object EnvironmentSyncRoot = new();
+    private static Task<CoreWebView2Environment>? _sharedEnvironmentTask;
+    private static string _sharedEnvironmentDirectory = string.Empty;
 
     private readonly CodexToolWindowViewModel _viewModel;
-    private WebView2 _webView = new();
+    private CodexOfficialWebViewControl _webViewControl;
     private readonly Border _statusLayer;
     private readonly TextBlock _statusText;
     private readonly List<JObject> _queuedMessages = new();
     private readonly CancellationTokenSource _lifetimeCts = new();
     private readonly string _webviewId = Guid.NewGuid().ToString("N");
     private readonly CodexOfficialWebViewBridge _bridge;
-    private readonly string _initialRoute;
+    private readonly CodexOfficialWebViewHostingMode _hostingMode;
+    private readonly CodexWebViewHostAttachmentTracker _hostAttachmentTracker = new();
+    private readonly Stopwatch _initializationStopwatch = new();
     private readonly bool _isSettingsSurface;
     private readonly bool _refreshToolWindowStartupState;
+    private string _currentRoute;
     private bool _initialized;
     private bool _ready;
+    private bool _readyReported;
     private bool _disposed;
     private bool _themeSubscribed;
     private bool _fallbackRequested;
     private int _initializationGeneration;
+    private int _hostLoadGeneration;
 
     public CodexOfficialWebViewHost(
         CodexToolWindowViewModel viewModel,
         string initialRoute = "/",
         bool isSettingsSurface = false,
-        bool registerAsPrimaryHost = true)
+        bool registerAsPrimaryHost = true,
+        CodexOfficialWebViewHostingMode? hostingMode = null)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
         _viewModel = viewModel;
-        _initialRoute = string.IsNullOrWhiteSpace(initialRoute) ? "/" : initialRoute;
+        _currentRoute = NormalizeRoute(initialRoute);
         _isSettingsSurface = isSettingsSurface;
         _refreshToolWindowStartupState = registerAsPrimaryHost;
+        _hostingMode = hostingMode ?? CodexOfficialWebViewControlFactory.ResolveDefaultHostingMode();
+        _webViewControl = CodexOfficialWebViewControlFactory.Create(_hostingMode);
         ClipToBounds = true;
         SetResourceReference(BackgroundProperty, EnvironmentColors.ToolWindowBackgroundBrushKey);
 
-        Children.Add(_webView);
+        Children.Add(_webViewControl.Element);
         _statusText = new TextBlock
         {
             Text = "Loading Codex…",
@@ -81,14 +119,33 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             PostMessage,
             section => global::CodexVsix.CodexToolWindowManager.ShowSettingsToolWindow(section),
             queryKey => CodexOfficialWebViewHostRegistry.BroadcastQueryInvalidation(this, queryKey),
-            isSettingsSurface);
+            isSettingsSurface,
+            UpdateCurrentRoute);
         Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
+        SizeChanged += OnSizeChanged;
+        PresentationSource.AddSourceChangedHandler(this, OnPresentationSourceChanged);
+        CodexDiagnosticLogger.Shared.EnabledChanged += OnDiagnosticLoggingChanged;
         CodexOfficialWebViewHostRegistry.Register(this, registerAsPrimaryHost);
+        CodexDiagnosticLogger.Shared.Write(
+            "webview.host.created",
+            new JObject
+            {
+                ["hostingMode"] = HostingModeName,
+                ["settingsSurface"] = _isSettingsSurface,
+                ["initialRoute"] = _currentRoute
+            });
     }
 
     public bool IsReady => _ready;
 
-    public event EventHandler? FallbackRequested;
+    private IWebView2 WebView => _webViewControl.WebView;
+
+    private string HostingModeName => CodexOfficialWebViewControlFactory.Format(_hostingMode);
+
+    public event EventHandler<CodexOfficialWebViewReadyEventArgs>? Ready;
+
+    public event EventHandler<CodexOfficialWebViewFallbackEventArgs>? FallbackRequested;
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
@@ -97,7 +154,110 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             _viewModel.EnsureToolWindowStartupState();
         }
 
-        InitializeAsync().FileAndForget("CodexVsix/OfficialWebViewInitialize");
+        ScheduleHostObservation();
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        _hostLoadGeneration++;
+        CodexDiagnosticLogger.Shared.Write(
+            "webview.host.unloaded",
+            CreateHostDiagnosticDetails());
+    }
+
+    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (!CodexDiagnosticLogger.Shared.IsEnabled)
+        {
+            return;
+        }
+
+        CodexDiagnosticLogger.Shared.Write(
+            "webview.host.size-changed",
+            new JObject
+            {
+                ["width"] = Math.Round(e.NewSize.Width, 1),
+                ["height"] = Math.Round(e.NewSize.Height, 1),
+                ["loaded"] = IsLoaded,
+                ["visible"] = IsVisible
+            });
+    }
+
+    private void OnPresentationSourceChanged(object sender, SourceChangedEventArgs e)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        CodexDiagnosticLogger.Shared.Write(
+            "webview.host.presentation-source-changed",
+            new JObject
+            {
+                ["oldRootHwnd"] = FormatHandle((e.OldSource as HwndSource)?.Handle ?? IntPtr.Zero),
+                ["newRootHwnd"] = FormatHandle((e.NewSource as HwndSource)?.Handle ?? IntPtr.Zero),
+                ["loaded"] = IsLoaded,
+                ["visible"] = IsVisible
+            });
+        ScheduleHostObservation();
+    }
+
+    private void ScheduleHostObservation()
+    {
+        var loadGeneration = ++_hostLoadGeneration;
+        ObserveHostAndInitializeAsync(loadGeneration)
+            .FileAndForget("CodexVsix/OfficialWebViewHostAttach");
+    }
+
+    private async Task ObserveHostAndInitializeAsync(int loadGeneration)
+    {
+        await Task.Yield();
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(_lifetimeCts.Token);
+        if (_disposed || !IsLoaded || loadGeneration != _hostLoadGeneration)
+        {
+            return;
+        }
+
+        var rootWindow = (PresentationSource.FromVisual(this) as HwndSource)?.Handle ?? IntPtr.Zero;
+        var observation = _hostAttachmentTracker.Observe(
+            rootWindow,
+            _webViewControl.NativeHostHandle,
+            _hostingMode);
+        CodexDiagnosticLogger.Shared.Write(
+            "webview.host.attached",
+            new JObject
+            {
+                ["action"] = observation.Action.ToString(),
+                ["hostingMode"] = HostingModeName,
+                ["previousRootHwnd"] = FormatHandle(observation.PreviousRootWindow),
+                ["rootHwnd"] = FormatHandle(observation.CurrentRootWindow),
+                ["previousNativeHwnd"] = FormatHandle(observation.PreviousNativeHostWindow),
+                ["nativeHwnd"] = FormatHandle(observation.CurrentNativeHostWindow)
+            });
+
+        if (observation.Action == CodexWebViewHostAttachmentAction.MissingHost)
+        {
+            await Task.Yield();
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(_lifetimeCts.Token);
+            if (_disposed || !IsLoaded || loadGeneration != _hostLoadGeneration)
+            {
+                return;
+            }
+
+            rootWindow = (PresentationSource.FromVisual(this) as HwndSource)?.Handle ?? IntPtr.Zero;
+            observation = _hostAttachmentTracker.Observe(
+                rootWindow,
+                _webViewControl.NativeHostHandle,
+                _hostingMode);
+        }
+
+        if (observation.Action == CodexWebViewHostAttachmentAction.RecreateWindowedControl
+            && _initialized)
+        {
+            RecreateWebViewForHostChange(rootWindow);
+        }
+
+        await InitializeAsync();
     }
 
     private async Task InitializeAsync()
@@ -109,7 +269,12 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 
         _initialized = true;
         var generation = ++_initializationGeneration;
-        var webView = _webView;
+        var webViewControl = _webViewControl;
+        var webView = webViewControl.WebView;
+        _initializationStopwatch.Restart();
+        CodexDiagnosticLogger.Shared.Write(
+            "webview.initialize.started",
+            CreateHostDiagnosticDetails());
         try
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(_lifetimeCts.Token);
@@ -118,15 +283,12 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
                 "CodexVsix",
                 "WebView2");
             Directory.CreateDirectory(userDataDirectory);
-            var environment = await CoreWebView2Environment.CreateAsync(
-                browserExecutableFolder: null,
-                userDataFolder: userDataDirectory);
+            var environment = await GetSharedEnvironmentAsync(userDataDirectory);
             await webView.EnsureCoreWebView2Async(environment);
             if (_disposed
                 || generation != _initializationGeneration
-                || !ReferenceEquals(webView, _webView))
+                || !ReferenceEquals(webViewControl, _webViewControl))
             {
-                webView.Dispose();
                 return;
             }
 
@@ -143,7 +305,8 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
                 _webviewId,
                 ResolveLocale(),
                 theme,
-                _initialRoute);
+                _currentRoute,
+                _viewModel.Settings.EnableDiagnosticLogging);
             File.WriteAllText(shellPath, html);
 
             webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
@@ -157,6 +320,18 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             SubscribeToThemeChanges();
             webView.Source = new Uri(
                 "https://" + CodexOfficialWebViewShell.ShellHostName + "/" + shellFileName + "?webviewId=" + Uri.EscapeDataString(_webviewId));
+            var currentRootWindow = (PresentationSource.FromVisual(this) as HwndSource)?.Handle ?? IntPtr.Zero;
+            _hostAttachmentTracker.RefreshCurrentHost(
+                currentRootWindow,
+                _webViewControl.NativeHostHandle);
+            CodexDiagnosticLogger.Shared.Write(
+                "webview.initialize.navigation-started",
+                new JObject
+                {
+                    ["hostingMode"] = HostingModeName,
+                    ["durationMilliseconds"] = _initializationStopwatch.ElapsedMilliseconds,
+                    ["runtimeVersion"] = environment.BrowserVersionString
+                });
         }
         catch (OperationCanceledException)
         {
@@ -165,14 +340,14 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         {
             if (!_disposed
                 && generation == _initializationGeneration
-                && ReferenceEquals(webView, _webView))
+                && ReferenceEquals(webViewControl, _webViewControl))
             {
-                ShowFailure(ex);
+                ShowFailure("initialization", ex);
             }
         }
     }
 
-    private void ConfigureCoreWebView(WebView2 webView)
+    private void ConfigureCoreWebView(IWebView2 webView)
     {
         var core = webView.CoreWebView2;
 #if DEBUG
@@ -188,6 +363,46 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         core.NavigationStarting += OnNavigationStarting;
         core.NewWindowRequested += OnNewWindowRequested;
         core.ProcessFailed += OnProcessFailed;
+    }
+
+    private static async Task<CoreWebView2Environment> GetSharedEnvironmentAsync(
+        string userDataDirectory)
+    {
+        Task<CoreWebView2Environment> environmentTask;
+        lock (EnvironmentSyncRoot)
+        {
+            if (_sharedEnvironmentTask is null
+                || !string.Equals(
+                    _sharedEnvironmentDirectory,
+                    userDataDirectory,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                _sharedEnvironmentDirectory = userDataDirectory;
+                _sharedEnvironmentTask = CoreWebView2Environment.CreateAsync(
+                    browserExecutableFolder: null,
+                    userDataFolder: userDataDirectory);
+            }
+
+            environmentTask = _sharedEnvironmentTask;
+        }
+
+        try
+        {
+            return await environmentTask;
+        }
+        catch
+        {
+            lock (EnvironmentSyncRoot)
+            {
+                if (ReferenceEquals(_sharedEnvironmentTask, environmentTask))
+                {
+                    _sharedEnvironmentTask = null;
+                    _sharedEnvironmentDirectory = string.Empty;
+                }
+            }
+
+            throw;
+        }
     }
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -208,6 +423,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
                 _statusLayer.Visibility = Visibility.Collapsed;
                 FlushQueuedMessages();
                 _bridge.EnableInteractiveServerRequests();
+                ReportReadyOnce();
             }
 
             await _bridge.HandleEnvelopeAsync(envelope, _lifetimeCts.Token);
@@ -225,7 +441,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
     {
         if (!e.IsSuccess)
         {
-            ShowFailure(new InvalidOperationException(
+            ShowFailure("navigation", new InvalidOperationException(
                 "The Codex webview navigation failed: " + e.WebErrorStatus));
         }
     }
@@ -252,7 +468,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 
     private void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
     {
-        ShowFailure(new InvalidOperationException(
+        ShowFailure("process", new InvalidOperationException(
             "The Codex webview process failed: " + e.ProcessFailedKind));
     }
 
@@ -286,7 +502,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             return;
         }
 
-        if (_webView.CoreWebView2 is null || !_ready)
+        if (WebView.CoreWebView2 is null || !_ready)
         {
             if (_queuedMessages.Count >= MaxQueuedMessages)
             {
@@ -297,7 +513,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             return;
         }
 
-        _webView.CoreWebView2.PostWebMessageAsJson(message.ToString(Formatting.None));
+        WebView.CoreWebView2.PostWebMessageAsJson(message.ToString(Formatting.None));
     }
 
     private async Task PostMessageOnUiThreadAsync(JObject message)
@@ -308,21 +524,22 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 
     private void FlushQueuedMessages()
     {
-        if (!_ready || _webView.CoreWebView2 is null)
+        if (!_ready || WebView.CoreWebView2 is null)
         {
             return;
         }
 
         foreach (var message in _queuedMessages)
         {
-            _webView.CoreWebView2.PostWebMessageAsJson(message.ToString(Formatting.None));
+            WebView.CoreWebView2.PostWebMessageAsJson(message.ToString(Formatting.None));
         }
 
         _queuedMessages.Clear();
     }
 
-    private void UnsubscribeAndDispose(WebView2 webView)
+    private void UnsubscribeAndDispose(CodexOfficialWebViewControl webViewControl)
     {
+        var webView = webViewControl.WebView;
         try
         {
             var core = webView.CoreWebView2;
@@ -339,7 +556,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         {
         }
 
-        webView.Dispose();
+        webViewControl.Dispose();
     }
 
     public void PrefillComposer(string text)
@@ -385,6 +602,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 
     private void NavigateTo(string path, bool focusComposer)
     {
+        _currentRoute = NormalizeRoute(path);
         var state = new JObject();
         if (focusComposer)
         {
@@ -394,12 +612,12 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         PostMessage(new JObject
         {
             ["type"] = "navigate-to-route",
-            ["path"] = path,
+            ["path"] = _currentRoute,
             ["state"] = state
         });
     }
 
-    private void ShowFailure(Exception exception)
+    private void ShowFailure(string? failureKind, Exception exception)
     {
         if (_disposed)
         {
@@ -408,7 +626,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 
         if (!Dispatcher.CheckAccess())
         {
-            ShowFailureOnUiThreadAsync(exception)
+            ShowFailureOnUiThreadAsync(failureKind, exception)
                 .FileAndForget("CodexVsix/OfficialWebViewFailure");
             return;
         }
@@ -419,10 +637,18 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             + exception.Message
             + "\n\nThe classic Visual Studio interface remains available.";
         _statusLayer.Visibility = Visibility.Visible;
-        RequestFallback();
+        CodexDiagnosticLogger.Shared.Write(
+            "webview.failure",
+            new JObject
+            {
+                ["failureKind"] = failureKind ?? string.Empty,
+                ["error"] = exception.Message,
+                ["hostingMode"] = HostingModeName
+            });
+        RequestFallback(failureKind ?? "official-failure", exception.Message);
     }
 
-    private void RequestFallback()
+    private void RequestFallback(string failureKind, string reason)
     {
         var handler = FallbackRequested;
         if (_fallbackRequested || handler is null)
@@ -431,13 +657,111 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         }
 
         _fallbackRequested = true;
-        handler(this, EventArgs.Empty);
+        handler(this, new CodexOfficialWebViewFallbackEventArgs(failureKind, reason));
     }
 
-    private async Task ShowFailureOnUiThreadAsync(Exception exception)
+    private async Task ShowFailureOnUiThreadAsync(string? failureKind, Exception exception)
     {
         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(_lifetimeCts.Token);
-        ShowFailure(exception);
+        ShowFailure(failureKind, exception);
+    }
+
+    private void RecreateWebViewForHostChange(IntPtr currentRootWindow)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var previousControl = _webViewControl;
+        _initializationGeneration++;
+        _initialized = false;
+        _ready = false;
+        _readyReported = false;
+        _bridge.DisableInteractiveServerRequests();
+        _statusText.Text = "Loading Codex…";
+        _statusLayer.Visibility = Visibility.Visible;
+
+        Children.Remove(previousControl.Element);
+        UnsubscribeAndDispose(previousControl);
+        _webViewControl = CodexOfficialWebViewControlFactory.Create(_hostingMode);
+        Children.Insert(0, _webViewControl.Element);
+        _hostAttachmentTracker.ResetAfterRecreation(
+            currentRootWindow,
+            _webViewControl.NativeHostHandle);
+        CodexDiagnosticLogger.Shared.Write(
+            "webview.host.recreated",
+            new JObject
+            {
+                ["reason"] = "host-window-changed",
+                ["hostingMode"] = HostingModeName,
+                ["rootHwnd"] = FormatHandle(currentRootWindow),
+                ["route"] = _currentRoute
+            });
+    }
+
+    private void ReportReadyOnce()
+    {
+        if (_readyReported)
+        {
+            return;
+        }
+
+        _readyReported = true;
+        _initializationStopwatch.Stop();
+        CodexDiagnosticLogger.Shared.Write(
+            "webview.ready",
+            new JObject
+            {
+                ["hostingMode"] = HostingModeName,
+                ["durationMilliseconds"] = _initializationStopwatch.ElapsedMilliseconds,
+                ["route"] = _currentRoute,
+                ["width"] = Math.Round(ActualWidth, 1),
+                ["height"] = Math.Round(ActualHeight, 1)
+            });
+        Ready?.Invoke(
+            this,
+            new CodexOfficialWebViewReadyEventArgs(
+                _initializationStopwatch.Elapsed,
+                HostingModeName));
+    }
+
+    private void UpdateCurrentRoute(string route)
+    {
+        _currentRoute = NormalizeRoute(route);
+    }
+
+    private void OnDiagnosticLoggingChanged(
+        object? sender,
+        CodexDiagnosticLoggingChangedEventArgs e)
+    {
+        PostMessage(new JObject
+        {
+            ["type"] = "diagnostic-logging-changed",
+            ["enabled"] = e.Enabled
+        });
+    }
+
+    private JObject CreateHostDiagnosticDetails()
+    {
+        var rootWindow = (PresentationSource.FromVisual(this) as HwndSource)?.Handle ?? IntPtr.Zero;
+        return new JObject
+        {
+            ["hostingMode"] = HostingModeName,
+            ["rootHwnd"] = FormatHandle(rootWindow),
+            ["nativeHwnd"] = FormatHandle(_webViewControl.NativeHostHandle),
+            ["loaded"] = IsLoaded,
+            ["visible"] = IsVisible,
+            ["width"] = Math.Round(ActualWidth, 1),
+            ["height"] = Math.Round(ActualHeight, 1)
+        };
+    }
+
+    private static string FormatHandle(IntPtr handle)
+    {
+        return "0x" + handle.ToInt64().ToString("X", CultureInfo.InvariantCulture);
+    }
+
+    private static string NormalizeRoute(string? route)
+    {
+        var value = string.IsNullOrWhiteSpace(route) ? "/" : route!.Trim();
+        return value[0] == '/' ? value : "/" + value;
     }
 
     private string ResolveWorkingDirectory()
@@ -499,6 +823,11 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 
         _disposed = true;
         Loaded -= OnLoaded;
+        Unloaded -= OnUnloaded;
+        SizeChanged -= OnSizeChanged;
+        PresentationSource.RemoveSourceChangedHandler(this, OnPresentationSourceChanged);
+        CodexDiagnosticLogger.Shared.EnabledChanged -= OnDiagnosticLoggingChanged;
+        _hostLoadGeneration++;
         _initializationGeneration++;
         _lifetimeCts.Cancel();
         _lifetimeCts.Dispose();
@@ -510,7 +839,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             _themeSubscribed = false;
         }
 
-        UnsubscribeAndDispose(_webView);
+        UnsubscribeAndDispose(_webViewControl);
     }
 }
 

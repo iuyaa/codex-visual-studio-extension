@@ -7,11 +7,11 @@ Run Codex inside Visual Studio without leaving the IDE.
 WebView to Visual Studio, and connects conversations to the active solution,
 editor, theme, and user settings.
 
-Current release: [v1.3.1](https://github.com/rodrigojager/codex-visual-studio-extension/releases/tag/v1.3.1)
+Current release: [v1.3.3](https://github.com/rodrigojager/codex-visual-studio-extension/releases/tag/v1.3.3)
 
 > [!WARNING]
-> This project is not actively maintained. Versions 1.3.0 and 1.3.1 were
-> exceptional maintenance releases and do not imply ongoing development or
+> This project is not actively maintained. The 1.3.x updates were exceptional
+> maintenance releases and do not imply ongoing development or
 > support. Issues and pull requests may not be reviewed. Fork the repository if
 > you need continued maintenance or compatibility work for future Codex and
 > Visual Studio versions.
@@ -20,6 +20,17 @@ Current release: [v1.3.1](https://github.com/rodrigojager/codex-visual-studio-ex
 > This is an independent project. It is not affiliated with, endorsed by, or
 > officially associated with OpenAI or ChatGPT. Logos and product references are
 > used only to describe the integration.
+
+## What's New in 1.3.3
+
+- The Codex panel is more reliable when docked, floating, or moved between
+  Visual Studio windows.
+- The extension remembers which interface works on the current computer and
+  starts with it next time, falling back automatically when necessary.
+- Only one interface runs at a time, preserving the editor responsiveness
+  improvements introduced in 1.3.1.
+- Optional diagnostic logs can be enabled in `Settings > General` without
+  restarting the extension. They remain disabled by default.
 
 ## What It Provides
 
@@ -61,6 +72,8 @@ Current release: [v1.3.1](https://github.com/rodrigojager/codex-visual-studio-ex
 - Configurable executable path, working directory, model, reasoning, verbosity,
   service tier, profile, approvals, sandbox, follow-up behavior, composer Enter
   behavior, review delivery, managed MCP servers, and startup behavior.
+- Optional local diagnostic logging for investigating display or docking
+  problems, disabled by default.
 - UI localization for English, Brazilian Portuguese, Spanish, French, and German.
 - Visual Studio theme integration for light and dark environments.
 
@@ -128,6 +141,12 @@ protected for the current Windows user with DPAPI and written atomically. Codex
 authentication and provider configuration remain under that user's Codex home
 directory and must never be copied into this repository.
 
+When enabled, optional diagnostics are stored under
+`%LOCALAPPDATA%\CodexVsix\logs`. They do not intentionally record prompts,
+responses, or request contents and filter common credential formats, but error
+details can still include local paths or other environment information. Review
+the files before sharing them publicly.
+
 ## Configuration Notes
 
 - Provider and profile behavior should be configured in `~/.codex/config.toml`.
@@ -185,6 +204,18 @@ are configured; otherwise the workflow publishes a verified unsigned package.
 Visual Studio Marketplace publication is intentionally manual.
 
 ## Changelog
+
+### 1.3.3 - 2026-07-18
+
+- Improved reliability when the Codex panel is docked, floating, or moved.
+- Remembered the interface that works on each computer and added an automatic
+  fallback, without loading two interfaces at the same time.
+- Preserved the responsiveness improvements from 1.3.1 by reloading the panel
+  only when Visual Studio actually moves it to another window.
+- Added optional local diagnostic logs, disabled by default, and fixed their
+  switch so it appears correctly under General settings.
+- Expanded automated coverage for docking, fallback, diagnostics, and release
+  packaging.
 
 ### 1.3.1 - 2026-07-16
 

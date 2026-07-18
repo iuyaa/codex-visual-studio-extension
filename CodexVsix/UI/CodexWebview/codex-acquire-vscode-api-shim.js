@@ -14,12 +14,16 @@
         return node && node.getAttribute('content') || undefined;
     }
 
+    let diagnosticLoggingEnabled = readMeta('codex-diagnostic-logging-enabled') === 'true';
     const appSessionId = readMeta('codex-session-id') || ('theia-' + Math.random().toString(36).slice(2));
     const sharedObjects = new Map([
         ['host_config', { id: 'local', display_name: 'Local', kind: 'local' }]
     ]);
 
     function postToHost(message) {
+        if (message && message.type === 'log-message' && !diagnosticLoggingEnabled) {
+            return;
+        }
         window.parent.postMessage({ channel: CHANNEL, webviewId: webviewId, message: message }, '*');
     }
 
@@ -48,7 +52,7 @@
     console.error = function () {
         const values = Array.prototype.slice.call(arguments);
         originalConsoleError.apply(console, values);
-        if (isForwardingConsoleError) return;
+        if (!diagnosticLoggingEnabled || isForwardingConsoleError) return;
         isForwardingConsoleError = true;
         try {
             postToHost({
@@ -63,7 +67,9 @@
 
     function logError(prefix, error) {
         const message = prefix + ': ' + ((error && (error.stack || error.message)) || String(error));
-        postToHost({ type: 'log-message', level: 'error', message: redactDiagnosticText(message) });
+        if (diagnosticLoggingEnabled) {
+            postToHost({ type: 'log-message', level: 'error', message: redactDiagnosticText(message) });
+        }
         try {
             originalConsoleError(message, error);
         } catch {
@@ -714,6 +720,9 @@
                 hostThemeVariant = nextVariant;
                 notifyThemeVariantListeners();
             }
+        }
+        if (data.type === 'diagnostic-logging-changed') {
+            diagnosticLoggingEnabled = data.enabled === true;
         }
         if (data.type === 'shared-object-updated' && typeof data.key === 'string') {
             sharedObjects.set(data.key, data.value);

@@ -245,6 +245,66 @@
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
         </Style>
 
+        <Style x:Key="SettingsSwitchStyle" TargetType="ToggleButton">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="SwitchRoot"
+                                Padding="8,7"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <Grid>
+                                <ContentPresenter Margin="0,0,54,0"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="Center" />
+                                <Border x:Name="SwitchTrack"
+                                        Width="38"
+                                        Height="22"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center"
+                                        Background="{StaticResource PopupBrush}"
+                                        BorderBrush="{StaticResource PanelBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="11">
+                                    <Ellipse x:Name="SwitchThumb"
+                                             Width="16"
+                                             Height="16"
+                                             Margin="2"
+                                             HorizontalAlignment="Left"
+                                             Fill="{StaticResource TextMutedBrush}" />
+                                </Border>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SwitchRoot" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="SwitchRoot" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="SwitchTrack" Property="Background" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Right" />
+                                <Setter TargetName="SwitchThumb" Property="Fill" Value="{StaticResource WindowBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="SwitchRoot" Property="Opacity" Value="0.55" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="PopupPanelButtonStyle" TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
             <Setter Property="Background" Value="Transparent" />
@@ -1101,6 +1161,21 @@
                                           Foreground="{StaticResource TextPrimaryBrush}"
                                           Content="{Binding Localization.AutoCompactLongConversationsLabel}"
                                           IsChecked="{Binding AutoCompactLongConversationsEnabled, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <ToggleButton Margin="-8,0,-8,12"
+                                              Style="{StaticResource SettingsSwitchStyle}"
+                                              AutomationProperties.Name="{Binding Localization.EnableDiagnosticLoggingLabel}"
+                                              IsChecked="{Binding DiagnosticLoggingEnabled, UpdateSourceTrigger=PropertyChanged}">
+                                    <StackPanel>
+                                        <TextBlock Foreground="{StaticResource TextPrimaryBrush}"
+                                                   Text="{Binding Localization.EnableDiagnosticLoggingLabel}" />
+                                        <TextBlock Margin="0,3,0,0"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   FontSize="11"
+                                                   Text="{Binding Localization.EnableDiagnosticLoggingDescription}"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </ToggleButton>
 
                                 <Button Margin="0,0,0,12"
                                         HorizontalAlignment="Left"
@@ -2814,6 +2889,20 @@
                                                   Foreground="{StaticResource TextPrimaryBrush}"
                                                   Content="{Binding Localization.AutoCompactLongConversationsLabel}"
                                                   IsChecked="{Binding AutoCompactLongConversationsEnabled, UpdateSourceTrigger=PropertyChanged}" />
+                                        <ToggleButton Margin="-8,10,-8,0"
+                                                      Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="{Binding Localization.EnableDiagnosticLoggingLabel}"
+                                                      IsChecked="{Binding DiagnosticLoggingEnabled, UpdateSourceTrigger=PropertyChanged}">
+                                            <StackPanel>
+                                                <TextBlock Foreground="{StaticResource TextPrimaryBrush}"
+                                                           Text="{Binding Localization.EnableDiagnosticLoggingLabel}" />
+                                                <TextBlock Margin="0,3,0,0"
+                                                           Foreground="{StaticResource TextMutedBrush}"
+                                                           FontSize="11"
+                                                           Text="{Binding Localization.EnableDiagnosticLoggingDescription}"
+                                                           TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </ToggleButton>
                                         <Button Margin="0,14,0,0"
                                                 HorizontalAlignment="Left"
                                                 Style="{StaticResource ChipButtonStyle}"

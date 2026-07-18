@@ -65,18 +65,16 @@ public sealed class CodexToolWindowXamlTests
     }
 
     [Fact]
-    public void MainWindowUsesOfficialWebViewAndCreatesClassicFallbackLazily()
+    public void MainWindowUsesOneCoordinatorSelectedRendererAtATime()
     {
         var toolWindowSource = File.ReadAllText(FindRepositoryFile("CodexVsix", "CodexToolWindow.cs"));
         var classicControlSource = File.ReadAllText(FindRepositoryFile("CodexVsix", "CodexToolWindowControl.xaml.cs"));
-        var constructorSection = toolWindowSource.Split(
-            new[] { "private void OnWebViewFallbackRequested" },
-            StringSplitOptions.None)[0];
 
-        Assert.Contains("new CodexOfficialWebViewHost(viewModel)", constructorSection);
-        Assert.DoesNotContain("new CodexToolWindowControl()", constructorSection);
-        Assert.Contains("private void ShowClassicFallback()", toolWindowSource);
+        Assert.Contains("CodexRendererCoordinator.Shared", toolWindowSource);
+        Assert.Contains("if (renderer == CodexRendererKind.ClassicWpf)", toolWindowSource);
+        Assert.Contains("_webViewHost = new CodexOfficialWebViewHost(_viewModel);", toolWindowSource);
         Assert.Contains("_classicControl = new CodexToolWindowControl();", toolWindowSource);
+        Assert.Contains("DisposeActiveRenderer();", toolWindowSource);
         Assert.DoesNotContain("CodexOfficialWebViewHost", classicControlSource);
     }
 
@@ -116,9 +114,57 @@ public sealed class CodexToolWindowXamlTests
             "UI",
             "CodexOfficialWebViewHost.cs"));
 
-        Assert.Contains("RequestFallback();", hostSource);
-        Assert.Contains("handler(this, EventArgs.Empty);", hostSource);
+        Assert.Contains("RequestFallback(failureKind ?? \"official-failure\", exception.Message);", hostSource);
+        Assert.Contains("new CodexOfficialWebViewFallbackEventArgs", hostSource);
         Assert.DoesNotContain("_statusLayer.MouseLeftButtonUp +=", hostSource);
+    }
+
+    [Fact]
+    public void WindowedWebViewIsRecreatedOnlyWhenItsHostWindowChanges()
+    {
+        var hostSource = File.ReadAllText(FindRepositoryFile(
+            "CodexVsix",
+            "UI",
+            "CodexOfficialWebViewHost.cs"));
+
+        Assert.Contains("CodexWebViewHostAttachmentAction.RecreateWindowedControl", hostSource);
+        Assert.Contains("RecreateWebViewForHostChange(rootWindow);", hostSource);
+        Assert.Contains("PresentationSource.AddSourceChangedHandler(this, OnPresentationSourceChanged);", hostSource);
+        Assert.Contains(
+            "ScheduleHostObservation();",
+            ExtractMethod(
+                hostSource,
+                "private void OnPresentationSourceChanged",
+                "private void ScheduleHostObservation"));
+        Assert.DoesNotContain("ResetWebViewForReload", hostSource);
+        Assert.DoesNotContain("RecreateWebViewForHostChange", ExtractMethod(hostSource, "private void OnUnloaded", "private void OnSizeChanged"));
+    }
+
+    [Fact]
+    public void DiagnosticLoggingUsesAVisuallyConsistentSwitchOnEveryClassicSettingsSurface()
+    {
+        var mainDocument = XDocument.Load(FindRepositoryFile("CodexVsix", "CodexToolWindowControl.xaml"));
+        var settingsDocument = XDocument.Load(FindRepositoryFile("CodexVsix", "CodexSettingsToolWindowControl.xaml"));
+
+        var mainSwitches = mainDocument
+            .Descendants(PresentationNamespace + "ToggleButton")
+            .Count(element => (element.Attribute("IsChecked")?.Value ?? string.Empty)
+                .Contains("DiagnosticLoggingEnabled"));
+        var settingsSwitches = settingsDocument
+            .Descendants(PresentationNamespace + "ToggleButton")
+            .Count(element => (element.Attribute("IsChecked")?.Value ?? string.Empty)
+                .Contains("DiagnosticLoggingEnabled"));
+
+        Assert.Equal(2, mainSwitches);
+        Assert.Equal(1, settingsSwitches);
+    }
+
+    private static string ExtractMethod(string source, string startMarker, string endMarker)
+    {
+        var start = source.IndexOf(startMarker, StringComparison.Ordinal);
+        var end = source.IndexOf(endMarker, start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        return source.Substring(start, end - start);
     }
 
     private static bool IsReadOnlyTextBox(XElement element)

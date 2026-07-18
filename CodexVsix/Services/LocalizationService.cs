@@ -77,6 +77,8 @@ public sealed class LocalizationService
         ["ReviewDeliveryLabel"] = "Review delivery",
         ["OpenOnStartupLabel"] = "Open Codex on startup",
         ["AutoCompactLongConversationsLabel"] = "Automatically compact context when it reaches 85%",
+        ["EnableDiagnosticLoggingLabel"] = "Enable diagnostic logs",
+        ["EnableDiagnosticLoggingDescription"] = "Write renderer and WebView diagnostics to local rotating files. Disabled by default.",
         ["CompactCurrentConversationButton"] = "Compact current conversation",
         ["ModelLabel"] = "Model",
         ["RefreshModelsButton"] = "Refresh models",
@@ -469,6 +471,8 @@ public sealed class LocalizationService
         ["ReviewDeliveryLabel"] = "Entrega da revisão",
         ["OpenOnStartupLabel"] = "Abrir o Codex ao iniciar",
         ["AutoCompactLongConversationsLabel"] = "Compactar o contexto automaticamente quando atingir 85%",
+        ["EnableDiagnosticLoggingLabel"] = "Habilitar logs de diagnóstico",
+        ["EnableDiagnosticLoggingDescription"] = "Grava diagnósticos técnicos do renderizador e do WebView em arquivos locais rotativos. Desativado por padrão.",
         ["CompactCurrentConversationButton"] = "Compactar conversa atual",
         ["ModelLabel"] = "Modelo",
         ["RefreshModelsButton"] = "Atualizar modelos",
@@ -803,6 +807,8 @@ public sealed class LocalizationService
         ["ReviewDeliveryLabel"] = "Entrega de la revisión",
         ["OpenOnStartupLabel"] = "Abrir Codex al iniciar",
         ["AutoCompactLongConversationsLabel"] = "Compactar el contexto automáticamente al alcanzar el 85%",
+        ["EnableDiagnosticLoggingLabel"] = "Habilitar registros de diagnóstico",
+        ["EnableDiagnosticLoggingDescription"] = "Guarda diagnósticos técnicos del renderizador y WebView en archivos locales rotativos. Desactivado por defecto.",
         ["CompactCurrentConversationButton"] = "Compactar conversación actual",
         ["ModelLabel"] = "Modelo",
         ["RefreshModelsButton"] = "Actualizar modelos",
@@ -1141,6 +1147,8 @@ public sealed class LocalizationService
         ["ReviewDeliveryLabel"] = "Affichage de la revue",
         ["OpenOnStartupLabel"] = "Ouvrir Codex au démarrage",
         ["AutoCompactLongConversationsLabel"] = "Compacter automatiquement le contexte lorsqu’il atteint 85 %",
+        ["EnableDiagnosticLoggingLabel"] = "Activer les journaux de diagnostic",
+        ["EnableDiagnosticLoggingDescription"] = "Enregistre les diagnostics techniques du moteur de rendu et de WebView dans des fichiers locaux rotatifs. Désactivé par défaut.",
         ["CompactCurrentConversationButton"] = "Compacter la conversation actuelle",
         ["ModelLabel"] = "Modèle",
         ["RefreshModelsButton"] = "Actualiser les modèles",
@@ -1479,6 +1487,8 @@ public sealed class LocalizationService
         ["ReviewDeliveryLabel"] = "Review-Ausgabe",
         ["OpenOnStartupLabel"] = "Codex beim Start öffnen",
         ["AutoCompactLongConversationsLabel"] = "Kontext bei 85 % automatisch komprimieren",
+        ["EnableDiagnosticLoggingLabel"] = "Diagnoseprotokolle aktivieren",
+        ["EnableDiagnosticLoggingDescription"] = "Schreibt technische Renderer- und WebView-Diagnosen in rotierende lokale Dateien. Standardmäßig deaktiviert.",
         ["CompactCurrentConversationButton"] = "Aktuelle Unterhaltung komprimieren",
         ["ModelLabel"] = "Modell",
         ["RefreshModelsButton"] = "Modelle aktualisieren",
@@ -1786,6 +1796,8 @@ public sealed class LocalizationService
     public string ReviewDeliveryLabel => Get("ReviewDeliveryLabel");
     public string OpenOnStartupLabel => Get("OpenOnStartupLabel");
     public string AutoCompactLongConversationsLabel => Get("AutoCompactLongConversationsLabel");
+    public string EnableDiagnosticLoggingLabel => Get("EnableDiagnosticLoggingLabel");
+    public string EnableDiagnosticLoggingDescription => Get("EnableDiagnosticLoggingDescription");
     public string CompactCurrentConversationButton => Get("CompactCurrentConversationButton");
     public string ModelLabel => Get("ModelLabel");
     public string RefreshModelsButton => Get("RefreshModelsButton");
