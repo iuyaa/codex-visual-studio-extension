@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.3.4 - 2026-07-22
+
+### Corrige a alternativa visual e torna os diagnósticos úteis
+- Recupera a interface moderna em etapas: WebView2 windowed, WebView2 composition
+  e um perfil WebView2 isolado antes de recorrer à interface clássica WPF.
+- Detecta quando a navegação termina mas a interface não envia o sinal de pronta,
+  registra cada tentativa e oferece a ação "Tentar a interface moderna novamente".
+- Mantém uma falha da janela de Configurações isolada, sem trocar o chat principal
+  para a interface clássica.
+- Tenta novamente a interface oficial após reiniciar o Visual Studio, sem deixar
+  uma falha transitória prender as próximas sessões à interface clássica.
+- Aceita erros simples retornados por providers personalizados e mostra a mensagem
+  real em vez de falhar ao interpretar o JSON.
+- Registra o ciclo do app-server, requests, respostas e stderr quando os
+  diagnósticos estão habilitados, sem incluir o prompt ou os parâmetros enviados.
+- Abre a interface clássica de configurações diretamente em uma seção utilizável.
+
 ## 1.3.3 - 2026-07-18
 
 ### Deixa o chat mais confiável em modo dock e em janela

@@ -58,6 +58,7 @@ public sealed class CodexProcessService : IDisposable
     private readonly object _writeLock = new();
     private readonly Dictionary<long, PendingRequest> _pendingRequests = new();
     private readonly Dictionary<string, string> _skillsByName = new(StringComparer.OrdinalIgnoreCase);
+    private readonly CodexDiagnosticLogger _diagnostics;
 
     private Process? _serverProcess;
     private StreamWriter? _serverInput;
@@ -80,6 +81,16 @@ public sealed class CodexProcessService : IDisposable
     public event Action? ThreadCatalogChanged;
     public event Action<CodexRateLimitSummary>? RateLimitsUpdated;
     public event Action? AccountUpdated;
+
+    public CodexProcessService()
+        : this(CodexDiagnosticLogger.Shared)
+    {
+    }
+
+    internal CodexProcessService(CodexDiagnosticLogger diagnostics)
+    {
+        _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
+    }
 
     public string? CurrentThreadId
     {
@@ -1099,6 +1110,15 @@ public sealed class CodexProcessService : IDisposable
             _serverInput = serverInput;
         }
 
+        _diagnostics.Write(
+            "appserver.process.started",
+            new JObject
+            {
+                ["generation"] = generation,
+                ["processId"] = process.Id,
+                ["executable"] = Path.GetFileName(executablePath)
+            });
+
         process.Exited += (_, _) => FailPendingOperations(process, generation, GetLocalization().AppServerClosedUnexpectedly);
         _ = Task.Run(() => ReadStdoutLoopAsync(process, generation));
         _ = Task.Run(() => ReadStderrLoopAsync(process, generation));
@@ -1122,6 +1142,15 @@ public sealed class CodexProcessService : IDisposable
                 }
                 catch (Exception ex)
                 {
+                    _diagnostics.Write(
+                        "appserver.message.failed",
+                        new JObject
+                        {
+                            ["generation"] = generation,
+                            ["errorType"] = ex.GetType().FullName,
+                            ["error"] = ex.Message,
+                            ["messageLength"] = line.Length
+                        });
                     PublishError("[" + GetLocalization().OutputTagAppServer + "] " + ex.Message + Environment.NewLine);
                 }
             }
@@ -1141,6 +1170,13 @@ public sealed class CodexProcessService : IDisposable
                 var line = await process.StandardError.ReadLineAsync().ConfigureAwait(false);
                 if (line is not null)
                 {
+                    _diagnostics.Write(
+                        "appserver.stderr",
+                        new JObject
+                        {
+                            ["generation"] = generation,
+                            ["message"] = line
+                        });
                     lock (_syncRoot)
                     {
                         if (ReferenceEquals(_serverProcess, process) && _serverGeneration == generation)
@@ -1161,6 +1197,14 @@ public sealed class CodexProcessService : IDisposable
         }
         catch (Exception ex)
         {
+            _diagnostics.Write(
+                "appserver.stderr-reader.failed",
+                new JObject
+                {
+                    ["generation"] = generation,
+                    ["errorType"] = ex.GetType().FullName,
+                    ["error"] = ex.Message
+                });
             PublishError("[" + GetLocalization().OutputTagStderr + "] " + ex.Message + Environment.NewLine);
         }
     }
@@ -1182,12 +1226,26 @@ public sealed class CodexProcessService : IDisposable
         }
         catch
         {
+            _diagnostics.Write(
+                "appserver.message.invalid-json",
+                new JObject
+                {
+                    ["generation"] = generation,
+                    ["messageLength"] = rawMessage.Length
+                });
             PublishError("[" + GetLocalization().OutputTagAppServer + "] " + rawMessage + Environment.NewLine);
             return;
         }
 
         if (parsedMessage is not JObject message)
         {
+            _diagnostics.Write(
+                "appserver.message.invalid-shape",
+                new JObject
+                {
+                    ["generation"] = generation,
+                    ["tokenType"] = parsedMessage.Type.ToString()
+                });
             PublishError("[" + GetLocalization().OutputTagAppServer + "] " + rawMessage + Environment.NewLine);
             return;
         }
@@ -1227,16 +1285,34 @@ public sealed class CodexProcessService : IDisposable
 
         var tcs = pendingRequest.Completion;
 
-        if (message["error"] is not null)
+        if (message["error"] is JToken error
+            && error.Type != JTokenType.Null
+            && error.Type != JTokenType.Undefined)
         {
-            var errorMessage = GetNestedString(message["error"], "message")
-                ?? message["error"]?.Value<string>()
-                ?? GetLocalization().AppServerRequestFailed;
-            var errorCode = message["error"]?["code"]?.Value<int?>();
+            var errorMessage = ExtractAppServerErrorMessage(error, GetLocalization().AppServerRequestFailed);
+            var errorCode = ExtractAppServerErrorCode(error);
+            _diagnostics.Write(
+                "appserver.response.error",
+                new JObject
+                {
+                    ["requestId"] = id,
+                    ["method"] = pendingRequest.Method,
+                    ["errorType"] = error.Type.ToString(),
+                    ["code"] = errorCode,
+                    ["message"] = errorMessage
+                });
             tcs.TrySetException(new CodexAppServerException(errorMessage, errorCode));
             return;
         }
 
+        _diagnostics.Write(
+            "appserver.response.completed",
+            new JObject
+            {
+                ["requestId"] = id,
+                ["method"] = pendingRequest.Method,
+                ["resultType"] = message["result"]?.Type.ToString() ?? "missing"
+            });
         tcs.TrySetResult(message["result"]);
     }
 
@@ -1255,10 +1331,10 @@ public sealed class CodexProcessService : IDisposable
                 {
                     if (webViewResponse["error"] is JToken error)
                     {
-                        var errorCode = error["code"]?.Value<int?>() ?? -32603;
-                        var errorMessage = error["message"]?.Value<string>()
-                            ?? error.Value<string>()
-                            ?? "The Codex interface could not resolve the app-server request.";
+                        var errorCode = ExtractAppServerErrorCode(error) ?? -32603;
+                        var errorMessage = ExtractAppServerErrorMessage(
+                            error,
+                            "The Codex interface could not resolve the app-server request.");
                         await SendErrorResponseAsync(id, errorCode, errorMessage).ConfigureAwait(false);
                     }
                     else
@@ -1859,8 +1935,17 @@ public sealed class CodexProcessService : IDisposable
             }
 
             generation = _serverGeneration;
-            _pendingRequests[id] = new PendingRequest(generation, tcs);
+            _pendingRequests[id] = new PendingRequest(generation, method, tcs);
         }
+
+        _diagnostics.Write(
+            "appserver.request.sent",
+            new JObject
+            {
+                ["requestId"] = id,
+                ["generation"] = generation,
+                ["method"] = method
+            });
 
         using (cancellationToken.Register(() =>
         {
@@ -1884,7 +1969,7 @@ public sealed class CodexProcessService : IDisposable
                     ["params"] = ConvertParameters(parameters)
                 }, generation);
             }
-            catch
+            catch (Exception ex)
             {
                 lock (_syncRoot)
                 {
@@ -1895,6 +1980,16 @@ public sealed class CodexProcessService : IDisposable
                     }
                 }
 
+                _diagnostics.Write(
+                    "appserver.request.write-failed",
+                    new JObject
+                    {
+                        ["requestId"] = id,
+                        ["generation"] = generation,
+                        ["method"] = method,
+                        ["errorType"] = ex.GetType().FullName,
+                        ["error"] = ex.Message
+                    });
                 throw;
             }
 
@@ -3235,6 +3330,52 @@ public sealed class CodexProcessService : IDisposable
         };
     }
 
+    internal static string ExtractAppServerErrorMessage(JToken? error, string fallbackMessage)
+    {
+        if (error is null || error.Type == JTokenType.Null || error.Type == JTokenType.Undefined)
+        {
+            return fallbackMessage;
+        }
+
+        var nestedMessage = GetNestedString(error, "message");
+        if (!string.IsNullOrWhiteSpace(nestedMessage))
+        {
+            return nestedMessage!;
+        }
+
+        if (error is JValue value)
+        {
+            var scalarMessage = value.Value?.ToString();
+            if (!string.IsNullOrWhiteSpace(scalarMessage))
+            {
+                return scalarMessage!;
+            }
+        }
+
+        var serialized = NewtonsoftJsonCompatibility.Serialize(error, Formatting.None);
+        return string.IsNullOrWhiteSpace(serialized) ? fallbackMessage : serialized;
+    }
+
+    internal static int? ExtractAppServerErrorCode(JToken? error)
+    {
+        if (error is not JObject errorObject)
+        {
+            return null;
+        }
+
+        if (errorObject["code"] is not JValue code
+            || code.Type == JTokenType.Null
+            || code.Type == JTokenType.Undefined)
+        {
+            return null;
+        }
+
+        var rawCode = Convert.ToString(code.Value, CultureInfo.InvariantCulture);
+        return int.TryParse(rawCode, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
+
     private void NotifyThreadCatalogChanged()
     {
         try
@@ -4523,6 +4664,15 @@ public sealed class CodexProcessService : IDisposable
         {
         }
 
+        _diagnostics.Write(
+            "appserver.process.failed",
+            new JObject
+            {
+                ["generation"] = generation,
+                ["pendingRequestCount"] = pendingRequests.Count,
+                ["message"] = message
+            });
+
         foreach (var pendingRequest in pendingRequests)
         {
             pendingRequest.TrySetException(new InvalidOperationException(message));
@@ -5301,13 +5451,16 @@ public sealed class CodexProcessService : IDisposable
 
     private sealed class PendingRequest
     {
-        public PendingRequest(long generation, TaskCompletionSource<JToken?> completion)
+        public PendingRequest(long generation, string method, TaskCompletionSource<JToken?> completion)
         {
             Generation = generation;
+            Method = method ?? string.Empty;
             Completion = completion;
         }
 
         public long Generation { get; }
+
+        public string Method { get; }
 
         public TaskCompletionSource<JToken?> Completion { get; }
     }

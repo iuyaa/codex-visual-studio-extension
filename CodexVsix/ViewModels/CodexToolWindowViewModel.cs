@@ -2405,7 +2405,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
     {
         _pinRecentTasksPreview = false;
         _showExpandedRecentTasksPreview = false;
-        SelectedSettingsSection = string.Empty;
+        SelectedSettingsSection = SettingsSectionCodex;
         ShowSettingsPanel = true;
         ShowHistoryPanel = false;
         OnPropertyChanged(nameof(ShowRecentTasksPreview));
@@ -3005,7 +3005,7 @@ public sealed class CodexToolWindowViewModel : INotifyPropertyChanged, IDisposab
         if (nextState)
         {
             ShowHistoryPanel = false;
-            SelectedSettingsSection = string.Empty;
+            SelectedSettingsSection = SettingsSectionCodex;
         }
 
         OnPropertyChanged(nameof(ShowRecentTasksPreview));

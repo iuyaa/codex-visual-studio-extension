@@ -51,19 +51,21 @@ internal sealed class CodexOfficialWebViewFallbackEventArgs : EventArgs
 internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 {
     private const int MaxQueuedMessages = 100;
+    private static readonly TimeSpan ReadySignalTimeout = TimeSpan.FromSeconds(20);
     private static readonly object EnvironmentSyncRoot = new();
-    private static Task<CoreWebView2Environment>? _sharedEnvironmentTask;
-    private static string _sharedEnvironmentDirectory = string.Empty;
+    private static readonly Dictionary<string, Task<CoreWebView2Environment>> SharedEnvironmentTasks =
+        new(StringComparer.OrdinalIgnoreCase);
 
     private readonly CodexToolWindowViewModel _viewModel;
     private CodexOfficialWebViewControl _webViewControl;
     private readonly Border _statusLayer;
     private readonly TextBlock _statusText;
     private readonly List<JObject> _queuedMessages = new();
+    private readonly HashSet<ulong> _externalNavigationIds = new();
     private readonly CancellationTokenSource _lifetimeCts = new();
     private readonly string _webviewId = Guid.NewGuid().ToString("N");
     private readonly CodexOfficialWebViewBridge _bridge;
-    private readonly CodexOfficialWebViewHostingMode _hostingMode;
+    private readonly CodexOfficialWebViewRecoveryPlan _recoveryPlan;
     private readonly CodexWebViewHostAttachmentTracker _hostAttachmentTracker = new();
     private readonly Stopwatch _initializationStopwatch = new();
     private readonly bool _isSettingsSurface;
@@ -75,8 +77,10 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
     private bool _disposed;
     private bool _themeSubscribed;
     private bool _fallbackRequested;
+    private bool _recovering;
     private int _initializationGeneration;
     private int _hostLoadGeneration;
+    private CancellationTokenSource? _readyTimeoutCts;
 
     public CodexOfficialWebViewHost(
         CodexToolWindowViewModel viewModel,
@@ -90,8 +94,9 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         _currentRoute = NormalizeRoute(initialRoute);
         _isSettingsSurface = isSettingsSurface;
         _refreshToolWindowStartupState = registerAsPrimaryHost;
-        _hostingMode = hostingMode ?? CodexOfficialWebViewControlFactory.ResolveDefaultHostingMode();
-        _webViewControl = CodexOfficialWebViewControlFactory.Create(_hostingMode);
+        _recoveryPlan = new CodexOfficialWebViewRecoveryPlan(
+            hostingMode ?? CodexOfficialWebViewControlFactory.ResolveDefaultHostingMode());
+        _webViewControl = CodexOfficialWebViewControlFactory.Create(CurrentAttempt.HostingMode);
         ClipToBounds = true;
         SetResourceReference(BackgroundProperty, EnvironmentColors.ToolWindowBackgroundBrushKey);
 
@@ -132,6 +137,9 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             new JObject
             {
                 ["hostingMode"] = HostingModeName,
+                ["profile"] = ProfileName,
+                ["attemptNumber"] = _recoveryPlan.AttemptNumber,
+                ["attemptCount"] = _recoveryPlan.AttemptCount,
                 ["settingsSurface"] = _isSettingsSurface,
                 ["initialRoute"] = _currentRoute
             });
@@ -141,7 +149,11 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 
     private IWebView2 WebView => _webViewControl.WebView;
 
-    private string HostingModeName => CodexOfficialWebViewControlFactory.Format(_hostingMode);
+    private CodexOfficialWebViewRecoveryAttempt CurrentAttempt => _recoveryPlan.Current;
+
+    private string HostingModeName => CodexOfficialWebViewControlFactory.Format(CurrentAttempt.HostingMode);
+
+    private string ProfileName => CodexOfficialWebViewRecoveryPlan.FormatProfile(CurrentAttempt.ProfileKind);
 
     public event EventHandler<CodexOfficialWebViewReadyEventArgs>? Ready;
 
@@ -222,7 +234,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         var observation = _hostAttachmentTracker.Observe(
             rootWindow,
             _webViewControl.NativeHostHandle,
-            _hostingMode);
+            CurrentAttempt.HostingMode);
         CodexDiagnosticLogger.Shared.Write(
             "webview.host.attached",
             new JObject
@@ -248,7 +260,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             observation = _hostAttachmentTracker.Observe(
                 rootWindow,
                 _webViewControl.NativeHostHandle,
-                _hostingMode);
+                CurrentAttempt.HostingMode);
         }
 
         if (observation.Action == CodexWebViewHostAttachmentAction.RecreateWindowedControl
@@ -278,10 +290,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         try
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(_lifetimeCts.Token);
-            var userDataDirectory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "CodexVsix",
-                "WebView2");
+            var userDataDirectory = ResolveUserDataDirectory(CurrentAttempt.ProfileKind);
             Directory.CreateDirectory(userDataDirectory);
             var environment = await GetSharedEnvironmentAsync(userDataDirectory);
             await webView.EnsureCoreWebView2Async(environment);
@@ -329,6 +338,9 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
                 new JObject
                 {
                     ["hostingMode"] = HostingModeName,
+                    ["profile"] = ProfileName,
+                    ["attemptNumber"] = _recoveryPlan.AttemptNumber,
+                    ["attemptCount"] = _recoveryPlan.AttemptCount,
                     ["durationMilliseconds"] = _initializationStopwatch.ElapsedMilliseconds,
                     ["runtimeVersion"] = environment.BrowserVersionString
                 });
@@ -371,19 +383,17 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         Task<CoreWebView2Environment> environmentTask;
         lock (EnvironmentSyncRoot)
         {
-            if (_sharedEnvironmentTask is null
-                || !string.Equals(
-                    _sharedEnvironmentDirectory,
-                    userDataDirectory,
-                    StringComparison.OrdinalIgnoreCase))
+            if (!SharedEnvironmentTasks.TryGetValue(userDataDirectory, out var cachedEnvironmentTask))
             {
-                _sharedEnvironmentDirectory = userDataDirectory;
-                _sharedEnvironmentTask = CoreWebView2Environment.CreateAsync(
+                environmentTask = CoreWebView2Environment.CreateAsync(
                     browserExecutableFolder: null,
                     userDataFolder: userDataDirectory);
+                SharedEnvironmentTasks[userDataDirectory] = environmentTask;
             }
-
-            environmentTask = _sharedEnvironmentTask;
+            else
+            {
+                environmentTask = cachedEnvironmentTask;
+            }
         }
 
         try
@@ -394,14 +404,74 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         {
             lock (EnvironmentSyncRoot)
             {
-                if (ReferenceEquals(_sharedEnvironmentTask, environmentTask))
+                if (SharedEnvironmentTasks.TryGetValue(userDataDirectory, out var cachedTask)
+                    && ReferenceEquals(cachedTask, environmentTask))
                 {
-                    _sharedEnvironmentTask = null;
-                    _sharedEnvironmentDirectory = string.Empty;
+                    SharedEnvironmentTasks.Remove(userDataDirectory);
                 }
             }
 
             throw;
+        }
+    }
+
+    private void StartReadySignalTimeout(
+        int generation,
+        CodexOfficialWebViewControl webViewControl)
+    {
+        CancelReadySignalTimeout();
+        var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
+        _readyTimeoutCts = timeoutCts;
+        WaitForReadySignalAsync(generation, webViewControl, timeoutCts.Token)
+            .FileAndForget("CodexVsix/OfficialWebViewReadyTimeout");
+    }
+
+    private async Task WaitForReadySignalAsync(
+        int generation,
+        CodexOfficialWebViewControl webViewControl,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(ReadySignalTimeout, cancellationToken);
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+            if (_disposed
+                || _ready
+                || _recovering
+                || generation != _initializationGeneration
+                || !ReferenceEquals(webViewControl, _webViewControl))
+            {
+                return;
+            }
+
+            ShowFailure(
+                "ready-timeout",
+                new TimeoutException(
+                    "The Codex webview navigation completed but the interface did not become ready within "
+                    + ReadySignalTimeout.TotalSeconds.ToString("0", CultureInfo.InvariantCulture)
+                    + " seconds."));
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void CancelReadySignalTimeout()
+    {
+        var timeoutCts = _readyTimeoutCts;
+        _readyTimeoutCts = null;
+        if (timeoutCts is null)
+        {
+            return;
+        }
+
+        try
+        {
+            timeoutCts.Cancel();
+        }
+        finally
+        {
+            timeoutCts.Dispose();
         }
     }
 
@@ -415,10 +485,16 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         try
         {
             var envelope = JObject.Parse(e.WebMessageAsJson);
+            if (_recovering || _disposed)
+            {
+                return;
+            }
+
             var type = envelope["message"]?["type"]?.Value<string>();
             if (string.Equals(type, "webview-ready", StringComparison.Ordinal)
                 || string.Equals(type, "ready", StringComparison.Ordinal))
             {
+                CancelReadySignalTimeout();
                 _ready = true;
                 _statusLayer.Visibility = Visibility.Collapsed;
                 FlushQueuedMessages();
@@ -439,10 +515,27 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 
     private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
+        if (_externalNavigationIds.Remove(e.NavigationId))
+        {
+            CodexDiagnosticLogger.Shared.Write(
+                "webview.navigation.external-completed",
+                new JObject { ["navigationId"] = e.NavigationId.ToString(CultureInfo.InvariantCulture) });
+            return;
+        }
+
         if (!e.IsSuccess)
         {
             ShowFailure("navigation", new InvalidOperationException(
                 "The Codex webview navigation failed: " + e.WebErrorStatus));
+            return;
+        }
+
+        CodexDiagnosticLogger.Shared.Write(
+            "webview.navigation.completed",
+            CreateHostDiagnosticDetails());
+        if (!_ready && !_recovering && !_disposed)
+        {
+            StartReadySignalTimeout(_initializationGeneration, _webViewControl);
         }
     }
 
@@ -457,6 +550,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         }
 
         e.Cancel = true;
+        _externalNavigationIds.Add(e.NavigationId);
         OpenExternalUri(e.Uri);
     }
 
@@ -556,7 +650,16 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         {
         }
 
-        webViewControl.Dispose();
+        try
+        {
+            webViewControl.Dispose();
+        }
+        catch (Exception ex)
+        {
+            CodexDiagnosticLogger.Shared.Write(
+                "webview.control.dispose-failed",
+                new JObject { ["error"] = ex.Message });
+        }
     }
 
     public void PrefillComposer(string text)
@@ -619,7 +722,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 
     private void ShowFailure(string? failureKind, Exception exception)
     {
-        if (_disposed)
+        if (_disposed || _fallbackRequested)
         {
             return;
         }
@@ -631,11 +734,19 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             return;
         }
 
+        if (_recovering)
+        {
+            return;
+        }
+
         ActivityLog.TryLogError("CodexVsix", "[official webview] " + exception);
+        _recovering = true;
+        _initializationGeneration++;
+        CancelReadySignalTimeout();
         _bridge.DisableInteractiveServerRequests();
-        _statusText.Text = "The official Codex interface could not be loaded.\n\n"
-            + exception.Message
-            + "\n\nThe classic Visual Studio interface remains available.";
+        _ready = false;
+        _readyReported = false;
+        _statusText.Text = "Recovering the Codex interface…\n\n" + exception.Message;
         _statusLayer.Visibility = Visibility.Visible;
         CodexDiagnosticLogger.Shared.Write(
             "webview.failure",
@@ -643,7 +754,44 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             {
                 ["failureKind"] = failureKind ?? string.Empty,
                 ["error"] = exception.Message,
-                ["hostingMode"] = HostingModeName
+                ["hostingMode"] = HostingModeName,
+                ["profile"] = ProfileName,
+                ["attemptNumber"] = _recoveryPlan.AttemptNumber,
+                ["attemptCount"] = _recoveryPlan.AttemptCount,
+                ["settingsSurface"] = _isSettingsSurface
+            });
+
+        if (_recoveryPlan.TryAdvance(out var nextAttempt))
+        {
+            CodexDiagnosticLogger.Shared.Write(
+                "webview.recovery.attempt",
+                new JObject
+                {
+                    ["triggerFailureKind"] = failureKind ?? string.Empty,
+                    ["triggerReason"] = exception.Message,
+                    ["nextHostingMode"] = CodexOfficialWebViewControlFactory.Format(nextAttempt.HostingMode),
+                    ["nextProfile"] = CodexOfficialWebViewRecoveryPlan.FormatProfile(nextAttempt.ProfileKind),
+                    ["attemptNumber"] = _recoveryPlan.AttemptNumber,
+                    ["attemptCount"] = _recoveryPlan.AttemptCount,
+                    ["settingsSurface"] = _isSettingsSurface
+                });
+            RetryAfterFailureAsync(failureKind ?? "official-failure")
+                .FileAndForget("CodexVsix/OfficialWebViewRecovery");
+            return;
+        }
+
+        _recovering = false;
+        _statusText.Text = "The official Codex interface could not be loaded.\n\n"
+            + exception.Message
+            + "\n\nThe classic Visual Studio interface remains available.";
+        CodexDiagnosticLogger.Shared.Write(
+            "webview.recovery.exhausted",
+            new JObject
+            {
+                ["failureKind"] = failureKind ?? string.Empty,
+                ["reason"] = exception.Message,
+                ["attemptCount"] = _recoveryPlan.AttemptCount,
+                ["settingsSurface"] = _isSettingsSurface
             });
         RequestFallback(failureKind ?? "official-failure", exception.Message);
     }
@@ -666,10 +814,48 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         ShowFailure(failureKind, exception);
     }
 
+    private async Task RetryAfterFailureAsync(string triggerFailureKind)
+    {
+        try
+        {
+            await Task.Yield();
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(_lifetimeCts.Token);
+            if (_disposed || !_recovering)
+            {
+                return;
+            }
+
+            RecreateWebView(
+                "recovery-" + triggerFailureKind,
+                (PresentationSource.FromVisual(this) as HwndSource)?.Handle ?? IntPtr.Zero);
+            _recovering = false;
+            if (IsLoaded)
+            {
+                ScheduleHostObservation();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _recovering = false;
+            ShowFailure("recovery-construction", ex);
+        }
+    }
+
     private void RecreateWebViewForHostChange(IntPtr currentRootWindow)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
+        RecreateWebView("host-window-changed", currentRootWindow);
+    }
+
+    private void RecreateWebView(string reason, IntPtr currentRootWindow)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
         var previousControl = _webViewControl;
+        var replacementControl = CodexOfficialWebViewControlFactory.Create(CurrentAttempt.HostingMode);
+        CancelReadySignalTimeout();
         _initializationGeneration++;
         _initialized = false;
         _ready = false;
@@ -680,7 +866,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
 
         Children.Remove(previousControl.Element);
         UnsubscribeAndDispose(previousControl);
-        _webViewControl = CodexOfficialWebViewControlFactory.Create(_hostingMode);
+        _webViewControl = replacementControl;
         Children.Insert(0, _webViewControl.Element);
         _hostAttachmentTracker.ResetAfterRecreation(
             currentRootWindow,
@@ -689,8 +875,11 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             "webview.host.recreated",
             new JObject
             {
-                ["reason"] = "host-window-changed",
+                ["reason"] = reason,
                 ["hostingMode"] = HostingModeName,
+                ["profile"] = ProfileName,
+                ["attemptNumber"] = _recoveryPlan.AttemptNumber,
+                ["attemptCount"] = _recoveryPlan.AttemptCount,
                 ["rootHwnd"] = FormatHandle(currentRootWindow),
                 ["route"] = _currentRoute
             });
@@ -710,6 +899,9 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
             new JObject
             {
                 ["hostingMode"] = HostingModeName,
+                ["profile"] = ProfileName,
+                ["attemptNumber"] = _recoveryPlan.AttemptNumber,
+                ["attemptCount"] = _recoveryPlan.AttemptCount,
                 ["durationMilliseconds"] = _initializationStopwatch.ElapsedMilliseconds,
                 ["route"] = _currentRoute,
                 ["width"] = Math.Round(ActualWidth, 1),
@@ -744,6 +936,10 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         return new JObject
         {
             ["hostingMode"] = HostingModeName,
+            ["profile"] = ProfileName,
+            ["attemptNumber"] = _recoveryPlan.AttemptNumber,
+            ["attemptCount"] = _recoveryPlan.AttemptCount,
+            ["settingsSurface"] = _isSettingsSurface,
             ["rootHwnd"] = FormatHandle(rootWindow),
             ["nativeHwnd"] = FormatHandle(_webViewControl.NativeHostHandle),
             ["loaded"] = IsLoaded,
@@ -762,6 +958,17 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
     {
         var value = string.IsNullOrWhiteSpace(route) ? "/" : route!.Trim();
         return value[0] == '/' ? value : "/" + value;
+    }
+
+    private static string ResolveUserDataDirectory(CodexOfficialWebViewProfileKind profileKind)
+    {
+        var directoryName = profileKind == CodexOfficialWebViewProfileKind.Recovery
+            ? "WebView2-Recovery"
+            : "WebView2";
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CodexVsix",
+            directoryName);
     }
 
     private string ResolveWorkingDirectory()
@@ -829,6 +1036,7 @@ internal sealed class CodexOfficialWebViewHost : Grid, IDisposable
         CodexDiagnosticLogger.Shared.EnabledChanged -= OnDiagnosticLoggingChanged;
         _hostLoadGeneration++;
         _initializationGeneration++;
+        CancelReadySignalTimeout();
         _lifetimeCts.Cancel();
         _lifetimeCts.Dispose();
         _bridge.Dispose();

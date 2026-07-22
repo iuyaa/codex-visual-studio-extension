@@ -62,6 +62,12 @@ public sealed class CodexToolWindowXamlTests
         Assert.Contains("isSettingsSurface: true", settingsWindowSource);
         Assert.Contains("registerAsPrimaryHost: false", settingsWindowSource);
         Assert.DoesNotContain("Content = new CodexSettingsToolWindowControl();", settingsWindowSource.Split(new[] { "OnWebViewFallbackRequested" }, StringSplitOptions.None)[0]);
+        var fallbackHandler = ExtractMethod(
+            settingsWindowSource,
+            "private void OnWebViewFallbackRequested",
+            "private void OnRendererSwitching");
+        Assert.Contains("ShowLocalClassicFallback(e.FailureKind, e.Reason);", fallbackHandler);
+        Assert.DoesNotContain("ReportOfficialFailure", fallbackHandler);
     }
 
     [Fact]
@@ -73,7 +79,8 @@ public sealed class CodexToolWindowXamlTests
         Assert.Contains("CodexRendererCoordinator.Shared", toolWindowSource);
         Assert.Contains("if (renderer == CodexRendererKind.ClassicWpf)", toolWindowSource);
         Assert.Contains("_webViewHost = new CodexOfficialWebViewHost(_viewModel);", toolWindowSource);
-        Assert.Contains("_classicControl = new CodexToolWindowControl();", toolWindowSource);
+        Assert.Contains("_classicControl = new CodexToolWindowControl(", toolWindowSource);
+        Assert.Contains("RetryOfficialRenderer(\"manual-main\")", toolWindowSource);
         Assert.Contains("DisposeActiveRenderer();", toolWindowSource);
         Assert.DoesNotContain("CodexOfficialWebViewHost", classicControlSource);
     }
@@ -107,7 +114,7 @@ public sealed class CodexToolWindowXamlTests
     }
 
     [Fact]
-    public void OfficialWebViewFailureRequestsClassicFallbackAutomatically()
+    public void OfficialWebViewExhaustsModernRecoveryBeforeRequestingClassicFallback()
     {
         var hostSource = File.ReadAllText(FindRepositoryFile(
             "CodexVsix",
@@ -116,7 +123,30 @@ public sealed class CodexToolWindowXamlTests
 
         Assert.Contains("RequestFallback(failureKind ?? \"official-failure\", exception.Message);", hostSource);
         Assert.Contains("new CodexOfficialWebViewFallbackEventArgs", hostSource);
+        Assert.Contains("_recoveryPlan.TryAdvance(out var nextAttempt)", hostSource);
+        Assert.Contains("\"webview.recovery.attempt\"", hostSource);
+        Assert.Contains("\"webview.recovery.exhausted\"", hostSource);
+        Assert.Contains("\"ready-timeout\"", hostSource);
+        Assert.Contains("StartReadySignalTimeout(_initializationGeneration, _webViewControl);", hostSource);
         Assert.DoesNotContain("_statusLayer.MouseLeftButtonUp +=", hostSource);
+    }
+
+    [Fact]
+    public void EveryClassicFallbackSurfaceOffersAModernInterfaceRetry()
+    {
+        var mainDocument = XDocument.Load(FindRepositoryFile("CodexVsix", "CodexToolWindowControl.xaml"));
+        var settingsDocument = XDocument.Load(FindRepositoryFile("CodexVsix", "CodexSettingsToolWindowControl.xaml"));
+
+        Assert.Single(
+            mainDocument.Descendants(PresentationNamespace + "Button"),
+            element => element.Attributes().Any(attribute =>
+                attribute.Name.LocalName == "Name"
+                && attribute.Value == "RetryModernInterfaceButton"));
+        Assert.Single(
+            settingsDocument.Descendants(PresentationNamespace + "Button"),
+            element => element.Attributes().Any(attribute =>
+                attribute.Name.LocalName == "Name"
+                && attribute.Value == "RetryModernInterfaceButton"));
     }
 
     [Fact]
@@ -157,6 +187,28 @@ public sealed class CodexToolWindowXamlTests
 
         Assert.Equal(2, mainSwitches);
         Assert.Equal(1, settingsSwitches);
+    }
+
+    [Fact]
+    public void ClassicSettingsOpenOnAUsableSectionInsteadOfABlankPanel()
+    {
+        var viewModelSource = File.ReadAllText(FindRepositoryFile(
+            "CodexVsix",
+            "ViewModels",
+            "CodexToolWindowViewModel.cs"));
+
+        var openSettingsMethod = ExtractMethod(
+            viewModelSource,
+            "private void OpenSettingsPanel()",
+            "private void OpenHistoryPanel()");
+        var toggleSettingsMethod = ExtractMethod(
+            viewModelSource,
+            "private void ToggleSettingsPanel()",
+            "private void CloseSidebar()");
+
+        Assert.Contains("SelectedSettingsSection = SettingsSectionCodex;", openSettingsMethod);
+        Assert.Contains("SelectedSettingsSection = SettingsSectionCodex;", toggleSettingsMethod);
+        Assert.DoesNotContain("SelectedSettingsSection = string.Empty;", openSettingsMethod);
     }
 
     private static string ExtractMethod(string source, string startMarker, string endMarker)

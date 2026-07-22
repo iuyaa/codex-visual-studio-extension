@@ -53,13 +53,14 @@ public sealed class CodexSettingsToolWindow : ToolWindowPane
     private void OnWebViewReady(object? sender, CodexOfficialWebViewReadyEventArgs e)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
-        _rendererCoordinator?.ReportOfficialReady(e.ReadyDuration, e.HostingMode);
+        // Settings is an independent surface. Its success or failure must not
+        // change the renderer selected for the primary chat window.
     }
 
     private void OnWebViewFallbackRequested(object? sender, CodexOfficialWebViewFallbackEventArgs e)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
-        _rendererCoordinator?.ReportOfficialFailure(e.FailureKind, e.Reason);
+        ShowLocalClassicFallback(e.FailureKind, e.Reason);
     }
 
     private void OnRendererSwitching(object? sender, CodexRendererTransitionEventArgs e)
@@ -86,7 +87,7 @@ public sealed class CodexSettingsToolWindow : ToolWindowPane
         {
             if (renderer == CodexRendererKind.ClassicWpf)
             {
-                _classicControl = new CodexSettingsToolWindowControl();
+                _classicControl = new CodexSettingsToolWindowControl(RetryModernInterface);
                 Content = _classicControl;
                 return;
             }
@@ -103,14 +104,54 @@ public sealed class CodexSettingsToolWindow : ToolWindowPane
         catch (Exception ex)
         {
             ActivityLog.TryLogError("CodexVsix", new LocalizationService().SettingsToolWindowInitializeLogMessage + Environment.NewLine + ex);
-            if (renderer == CodexRendererKind.OfficialWebView
-                && _rendererCoordinator?.ReportOfficialFailure("construction", ex.Message) == true)
+            if (renderer == CodexRendererKind.OfficialWebView)
             {
+                ShowLocalClassicFallback("construction", ex.Message);
                 return;
             }
 
             Content = CreateErrorView(ex);
         }
+    }
+
+    private void ShowLocalClassicFallback(string failureKind, string reason)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        CodexDiagnosticLogger.Shared.Write(
+            "renderer.settings.local-fallback",
+            new Newtonsoft.Json.Linq.JObject
+            {
+                ["failureKind"] = failureKind ?? string.Empty,
+                ["reason"] = reason ?? string.Empty,
+                ["mainRenderer"] = _rendererCoordinator is null
+                    ? string.Empty
+                    : CodexRendererCompatibilityStore.FormatRenderer(_rendererCoordinator.CurrentRenderer)
+            });
+        DisposeActiveRenderer();
+        if (_viewModel is null)
+        {
+            return;
+        }
+
+        _viewModel.EnsureExternalSettingsSection("codex");
+        _classicControl = new CodexSettingsToolWindowControl(RetryModernInterface);
+        Content = _classicControl;
+    }
+
+    private void RetryModernInterface()
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        if (_rendererCoordinator?.CurrentRenderer == CodexRendererKind.ClassicWpf)
+        {
+            _rendererCoordinator.RetryOfficialRenderer("manual-settings");
+            return;
+        }
+
+        CodexDiagnosticLogger.Shared.Write(
+            "renderer.settings.manual-retry",
+            new Newtonsoft.Json.Linq.JObject());
+        DisposeActiveRenderer();
+        ShowRenderer(CodexRendererKind.OfficialWebView);
     }
 
     protected override void Dispose(bool disposing)

@@ -50,13 +50,21 @@ internal sealed class CodexRendererCoordinator
             ? "unknown"
             : environmentFingerprint.Trim();
         _snapshot = _store.Load(_environmentFingerprint);
-        _currentRenderer = CodexRendererCompatibilityStore.ParseRenderer(_snapshot.PreferredRenderer);
+        var cachedRenderer = CodexRendererCompatibilityStore.ParseRenderer(_snapshot.PreferredRenderer);
+
+        // A WebView failure may be transient (docking, a browser-process restart, or
+        // Visual Studio shutting down). Keep the classic renderer for the remainder
+        // of the current process, but retry the official renderer after Visual Studio
+        // is restarted instead of pinning the user to the fallback indefinitely.
+        _currentRenderer = CodexRendererKind.OfficialWebView;
 
         _diagnostics.Write(
             "renderer.decision",
             new JObject
             {
                 ["renderer"] = CodexRendererCompatibilityStore.FormatRenderer(_currentRenderer),
+                ["cachedRenderer"] = CodexRendererCompatibilityStore.FormatRenderer(cachedRenderer),
+                ["retryingCachedFallback"] = cachedRenderer == CodexRendererKind.ClassicWpf,
                 ["cacheMatched"] = string.IsNullOrWhiteSpace(_store.LastLoadError),
                 ["cacheError"] = _store.LastLoadError
             });
@@ -144,6 +152,46 @@ internal sealed class CodexRendererCoordinator
 
         // This is intentionally two phase: every participant disposes its WebView first,
         // and only then may any participant construct the classic WPF renderer.
+        RaiseSafely(RendererSwitching, transition);
+        TrySave(snapshot);
+        RaiseSafely(RendererChanged, transition);
+        return true;
+    }
+
+    public bool RetryOfficialRenderer(string reason)
+    {
+        CodexRendererTransitionEventArgs transition;
+        CodexRendererCompatibilitySnapshot snapshot;
+        var normalizedReason = string.IsNullOrWhiteSpace(reason)
+            ? "manual-retry"
+            : reason.Trim();
+        lock (_syncRoot)
+        {
+            if (_currentRenderer != CodexRendererKind.ClassicWpf)
+            {
+                return false;
+            }
+
+            transition = new CodexRendererTransitionEventArgs(
+                CodexRendererKind.ClassicWpf,
+                CodexRendererKind.OfficialWebView,
+                normalizedReason);
+            _currentRenderer = CodexRendererKind.OfficialWebView;
+            _snapshot.LastOutcome = "manual-retry";
+            _snapshot.LastReason = normalizedReason;
+            _snapshot.LastReadyDurationMilliseconds = null;
+            _snapshot.UpdatedUtc = DateTimeOffset.UtcNow.ToString("O");
+            snapshot = CloneSnapshot(_snapshot);
+        }
+
+        _diagnostics.Write(
+            "renderer.official.manual-retry",
+            new JObject
+            {
+                ["reason"] = normalizedReason,
+                ["nextRenderer"] = CodexRendererCompatibilityStore.OfficialRendererId
+            });
+
         RaiseSafely(RendererSwitching, transition);
         TrySave(snapshot);
         RaiseSafely(RendererChanged, transition);

@@ -7,7 +7,7 @@ Run Codex inside Visual Studio without leaving the IDE.
 WebView to Visual Studio, and connects conversations to the active solution,
 editor, theme, and user settings.
 
-Current release: [v1.3.3](https://github.com/rodrigojager/codex-visual-studio-extension/releases/tag/v1.3.3)
+Current release: [v1.3.4](https://github.com/rodrigojager/codex-visual-studio-extension/releases/tag/v1.3.4)
 
 > [!WARNING]
 > This project is not actively maintained. The 1.3.x updates were exceptional
@@ -21,16 +21,16 @@ Current release: [v1.3.3](https://github.com/rodrigojager/codex-visual-studio-ex
 > officially associated with OpenAI or ChatGPT. Logos and product references are
 > used only to describe the integration.
 
-## What's New in 1.3.3
+## What's New in 1.3.4
 
-- The Codex panel is more reliable when docked, floating, or moved between
-  Visual Studio windows.
-- The extension remembers which interface works on the current computer and
-  starts with it next time, falling back automatically when necessary.
-- Only one interface runs at a time, preserving the editor responsiveness
-  improvements introduced in 1.3.1.
-- Optional diagnostic logs can be enabled in `Settings > General` without
-  restarting the extension. They remain disabled by default.
+- The extension makes several attempts to recover the modern Codex interface
+  before using the classic fallback.
+- A problem limited to the settings window no longer changes the main chat to
+  the classic interface.
+- Classic fallback screens now include an action to try the modern interface
+  again without restarting Visual Studio.
+- Provider and app-server errors are displayed more clearly, while optional
+  diagnostic logs contain more useful request, response, and recovery details.
 
 ## What It Provides
 
@@ -204,6 +204,21 @@ are configured; otherwise the workflow publishes a verified unsigned package.
 Visual Studio Marketplace publication is intentionally manual.
 
 ## Changelog
+
+### 1.3.4 - 2026-07-22
+
+- Recovers the modern interface through windowed WebView2, composition WebView2,
+  and an isolated recovery profile before falling back to classic WPF.
+- Detects a missing `webview-ready` signal, logs every recovery attempt, and adds
+  a "Try the modern interface again" action to classic fallback surfaces.
+- Keeps a settings-only WebView failure local instead of downgrading the main chat.
+- Retries the official interface after Visual Studio restarts instead of keeping
+  a transient WebView fallback across later sessions.
+- Handles scalar errors from custom providers without a Newtonsoft `JValue`
+  parsing failure and surfaces the provider's actual message.
+- Records app-server requests, response outcomes, stderr, and process failures
+  when diagnostic logging is enabled, without logging prompts or request payloads.
+- Opens classic settings on a usable section instead of an empty panel.
 
 ### 1.3.3 - 2026-07-18
 

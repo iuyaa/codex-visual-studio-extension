@@ -74,7 +74,8 @@ public sealed class CodexToolWindow : ToolWindowPane
         {
             if (renderer == CodexRendererKind.ClassicWpf)
             {
-                _classicControl = new CodexToolWindowControl();
+                _classicControl = new CodexToolWindowControl(
+                    () => _rendererCoordinator?.RetryOfficialRenderer("manual-main"));
                 Content = _classicControl;
                 return;
             }

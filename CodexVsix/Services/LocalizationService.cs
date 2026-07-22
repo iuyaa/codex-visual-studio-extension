@@ -262,6 +262,7 @@ public sealed class LocalizationService
         ["MermaidPreviewScriptError"] = "Could not load Mermaid preview.",
         ["ToolWindowErrorMessage"] = "The Codex window encountered an error during initialization.",
         ["SettingsToolWindowErrorMessage"] = "The Codex settings window encountered an error during initialization.",
+        ["RetryModernInterfaceButton"] = "Try the modern interface again",
         ["OpenWindowFailedMessage"] = "The Codex window failed to open.",
         ["ExecutionCanceledTag"] = "canceled",
         ["ExecutionErrorTag"] = "error",
@@ -602,6 +603,7 @@ public sealed class LocalizationService
         ["MermaidPreviewScriptError"] = "Erro ao carregar o preview do Mermaid.",
         ["ToolWindowErrorMessage"] = "A janela do Codex encontrou um erro durante a inicialização.",
         ["SettingsToolWindowErrorMessage"] = "A janela de configurações do Codex encontrou um erro durante a inicialização.",
+        ["RetryModernInterfaceButton"] = "Tentar a interface moderna novamente",
         ["OpenWindowFailedMessage"] = "A janela do Codex falhou ao abrir.",
         ["ExecutionCanceledTag"] = "cancelado",
         ["ExecutionErrorTag"] = "erro",
@@ -942,6 +944,7 @@ public sealed class LocalizationService
         ["MermaidPreviewScriptError"] = "Error al cargar la vista previa de Mermaid.",
         ["ToolWindowErrorMessage"] = "La ventana de Codex encontró un error durante la inicialización.",
         ["SettingsToolWindowErrorMessage"] = "La ventana de configuración de Codex encontró un error durante la inicialización.",
+        ["RetryModernInterfaceButton"] = "Volver a intentar la interfaz moderna",
         ["OpenWindowFailedMessage"] = "La ventana de Codex no pudo abrirse.",
         ["ExecutionCanceledTag"] = "cancelado",
         ["ExecutionErrorTag"] = "error",
@@ -1282,6 +1285,7 @@ public sealed class LocalizationService
         ["MermaidPreviewScriptError"] = "Erreur lors du chargement de l'aperçu Mermaid.",
         ["ToolWindowErrorMessage"] = "La fenêtre Codex a rencontré une erreur pendant l'initialisation.",
         ["SettingsToolWindowErrorMessage"] = "La fenêtre des paramètres Codex a rencontré une erreur pendant l'initialisation.",
+        ["RetryModernInterfaceButton"] = "Réessayer l'interface moderne",
         ["OpenWindowFailedMessage"] = "La fenêtre Codex n'a pas pu s'ouvrir.",
         ["ExecutionCanceledTag"] = "annulé",
         ["ExecutionErrorTag"] = "erreur",
@@ -1622,6 +1626,7 @@ public sealed class LocalizationService
         ["MermaidPreviewScriptError"] = "Fehler beim Laden der Mermaid-Vorschau.",
         ["ToolWindowErrorMessage"] = "Das Codex-Fenster ist bei der Initialisierung auf einen Fehler gestoßen.",
         ["SettingsToolWindowErrorMessage"] = "Das Codex-Einstellungsfenster ist bei der Initialisierung auf einen Fehler gestoßen.",
+        ["RetryModernInterfaceButton"] = "Moderne Oberfläche erneut versuchen",
         ["OpenWindowFailedMessage"] = "Das Codex-Fenster konnte nicht geöffnet werden.",
         ["ExecutionCanceledTag"] = "abgebrochen",
         ["ExecutionErrorTag"] = "fehler",
@@ -1955,6 +1960,7 @@ public sealed class LocalizationService
     public string MermaidPreviewScriptError => Get("MermaidPreviewScriptError");
     public string ToolWindowErrorMessage => Get("ToolWindowErrorMessage");
     public string SettingsToolWindowErrorMessage => Get("SettingsToolWindowErrorMessage");
+    public string RetryModernInterfaceButton => Get("RetryModernInterfaceButton");
     public string OpenWindowFailedMessage => Get("OpenWindowFailedMessage");
     public string ExecutionCanceledTag => Get("ExecutionCanceledTag");
     public string ExecutionErrorTag => Get("ExecutionErrorTag");
