@@ -74,7 +74,7 @@ public sealed class CodexOfficialWebViewShellTests
     }
 
     [Fact]
-    public void FrozenAuthClientFallsBackToCustomProviderWhenAccountReadFails()
+    public void FrozenAuthClientFallsBackToCustomProviderWhenAccountReadFailsOrRequiresAuth()
     {
         var resourceRoot = ResolveResourceRoot();
         var authAsset = Path.Combine(resourceRoot, "webview", "assets", "use-auth-BzTuY7Bc.js");
@@ -86,6 +86,10 @@ public sealed class CodexOfficialWebViewShellTests
         Assert.Contains("modelProvider", source);
         Assert.Contains("n.toLowerCase()!==`openai`", source);
         Assert.Contains("requiresAuth:!1", source);
+        Assert.Contains("let u=await A(e,{isCopilotApiAvailable:r,useCopilotAuthIfAvailable:i})", source);
+        Assert.Contains("async function A(e,t)", source);
+        Assert.Contains("if(!n.requiresAuth)return n", source);
+        Assert.Contains("r?.requiresAuth===!1?r:n", source);
     }
 
     [Fact]
