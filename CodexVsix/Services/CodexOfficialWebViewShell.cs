@@ -8,7 +8,7 @@ namespace CodexVsix.Services;
 internal static class CodexOfficialWebViewShell
 {
     internal const string OfficialExtensionVersion = "26.5527.31454";
-    internal const string AssetHostName = "codex-assets.local";
+    internal const string AssetHostName = "codex-assets-authfix-v138.local";
     internal const string ShellHostName = "codex-shell.local";
 
     private static readonly Regex RelativeAssetRegex = new(
