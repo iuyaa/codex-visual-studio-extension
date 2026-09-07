@@ -1,0 +1,65 @@
+name: Build auth fix VSIX
+
+on:
+  push:
+    branches:
+      - build/custom-provider-auth
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-package:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          msbuild-architecture: x64
+
+      - name: Restore locked dependencies and audit
+        shell: pwsh
+        run: |
+          dotnet restore CodexVs2026Extension.sln `
+            --locked-mode `
+            -p:NuGetAudit=true `
+            -p:NuGetAuditMode=all `
+            -p:WarningsAsErrors=NU1901%3BNU1902%3BNU1903%3BNU1904
+
+      - name: Test
+        shell: pwsh
+        run: dotnet test CodexVs2026Extension.sln -c Release --no-restore
+
+      - name: Build VSIX
+        shell: pwsh
+        run: |
+          msbuild CodexVsix\CodexVsix.csproj `
+            /t:Rebuild `
+            /m `
+            /p:Configuration=Release `
+            /p:RestoreLockedMode=true `
+            /p:BuildVsixPackage=true
+
+      - name: Verify VSIX structure and versions
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content Directory.Build.props -Raw
+          $version = $props.Project.PropertyGroup.Version
+          .\scripts\Test-VsixPackage.ps1 `
+            -VsixPath CodexVsix\CodexVsix.vsix `
+            -ExpectedVersion $version
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: Visual-Codex-Studio-auth-fix-${{ github.sha }}
+          path: CodexVsix/CodexVsix.vsix
