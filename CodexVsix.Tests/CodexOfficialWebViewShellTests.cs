@@ -74,6 +74,21 @@ public sealed class CodexOfficialWebViewShellTests
     }
 
     [Fact]
+    public void FrozenAuthClientFallsBackToCustomProviderWhenAccountReadFails()
+    {
+        var resourceRoot = ResolveResourceRoot();
+        var authAsset = Path.Combine(resourceRoot, "webview", "assets", "use-auth-BzTuY7Bc.js");
+
+        Assert.True(File.Exists(authAsset));
+        var source = File.ReadAllText(authAsset);
+
+        Assert.Contains("sendRequest(`config/read`", source);
+        Assert.Contains("modelProvider", source);
+        Assert.Contains("n.toLowerCase()!==`openai`", source);
+        Assert.Contains("requiresAuth:!1", source);
+    }
+
+    [Fact]
     public void ShimAdaptationRejectsAnUnknownTransportShape()
     {
         Assert.Throws<InvalidDataException>(() =>
