@@ -86,10 +86,11 @@ public sealed class CodexOfficialWebViewShellTests
         Assert.Contains("modelProvider", source);
         Assert.Contains("n.toLowerCase()!==`openai`", source);
         Assert.Contains("requiresAuth:!1", source);
-        Assert.Contains("let u=await A(e,{isCopilotApiAvailable:r,useCopilotAuthIfAvailable:i})", source);
-        Assert.Contains("async function A(e,t)", source);
-        Assert.Contains("if(!n.requiresAuth)return n", source);
-        Assert.Contains("r?.requiresAuth===!1?r:n", source);
+        Assert.Contains("let u=await A(e,q,{isCopilotApiAvailable:r,useCopilotAuthIfAvailable:i})", source);
+        Assert.Contains("async function A(e,t,n)", source);
+        Assert.Contains("let r=y(t,n)", source);
+        Assert.Contains("let i=await E(e)", source);
+        Assert.Contains("i?.requiresAuth===!1?i:r", source);
     }
 
     [Fact]
