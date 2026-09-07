@@ -19,8 +19,12 @@ internal static class CodexExecutableResolver
             return trimmed;
         }
 
+        // Treat the legacy bare default "codex.cmd" as the generic Codex command name.
+        // This preserves compatibility with npm-style installs while also allowing newer
+        // Desktop installs that expose only codex.exe to be discovered from PATH.
         return string.Equals(trimmed, "codex", StringComparison.OrdinalIgnoreCase)
-            ? DefaultWindowsExecutableName()
+            || string.Equals(trimmed, "codex.cmd", StringComparison.OrdinalIgnoreCase)
+            ? "codex"
             : trimmed;
     }
 
